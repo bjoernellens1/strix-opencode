@@ -5,26 +5,26 @@ set -euo pipefail
 # Measures: time-to-first-token (TTFT), total time, tokens/sec, and captures output for quality comparison.
 #
 # Usage:
-#   ./scripts/benchmark                    # benchmark both endpoints
-#   ./scripts/benchmark orch               # orchestrator only
-#   ./scripts/benchmark fast               # fast only
-#   ./scripts/benchmark orch results/bf16  # save to custom dir
+#   ./scripts/benchmark                     # benchmark both GPU agents
+#   ./scripts/benchmark thor                # Thor only
+#   ./scripts/benchmark valkyrie            # Valkyrie only
+#   ./scripts/benchmark thor results/bf16   # save to custom dir
 
 TARGET="${1:-all}"
 OUTDIR="${2:-results/$(date +%Y%m%d-%H%M%S)}"
 mkdir -p "$OUTDIR"
 
-ORCH_URL="http://127.0.0.1:${ORCH_PORT:-8001}/v1/chat/completions"
-FAST_URL="http://127.0.0.1:${FAST_PORT:-8004}/v1/chat/completions"
+THOR_URL="http://127.0.0.1:${THOR_PORT:-8001}/v1/chat/completions"
+VALKYRIE_URL="http://127.0.0.1:${VALKYRIE_PORT:-8002}/v1/chat/completions"
 
 # --- Prompts ---
 
-# Orch/Coder prompts: coding + reasoning tasks an agent would send
-read -r -d '' ORCH_P1 <<'PROMPT' || true
+# Thor prompts: coordination + reasoning tasks
+read -r -d '' THOR_P1 <<'PROMPT' || true
 Write a Python function that finds the longest increasing subsequence in a list of integers. Include type hints, handle edge cases, and add a brief docstring.
 PROMPT
 
-read -r -d '' ORCH_P2 <<'PROMPT' || true
+read -r -d '' THOR_P2 <<'PROMPT' || true
 Review this code and find the bug:
 
 ```python
@@ -42,16 +42,16 @@ def merge_sorted(a, b):
 ```
 PROMPT
 
-read -r -d '' ORCH_P3 <<'PROMPT' || true
+read -r -d '' THOR_P3 <<'PROMPT' || true
 Explain the tradeoffs between using a B-tree vs a hash index in a database. When would you pick one over the other? Be concise — 3-4 paragraphs max.
 PROMPT
 
-# Fast/utility prompts: short summarization + extraction tasks
-read -r -d '' FAST_P1 <<'PROMPT' || true
+# Valkyrie prompts: code generation + tool use tasks
+read -r -d '' VALKYRIE_P1 <<'PROMPT' || true
 Summarize in one sentence: "The AMD Strix Halo platform uses a unified memory architecture where the CPU and GPU share 128GB of LPDDR5X memory. This means GPU workloads access the same physical memory as CPU workloads, eliminating the need for PCIe transfers but introducing contention for memory bandwidth."
 PROMPT
 
-read -r -d '' FAST_P2 <<'PROMPT' || true
+read -r -d '' VALKYRIE_P2 <<'PROMPT' || true
 Extract the function names and their return types from this code:
 
 ```typescript
@@ -61,7 +61,7 @@ function validateInput(data: unknown): data is ValidData { ... }
 ```
 PROMPT
 
-read -r -d '' FAST_P3 <<'PROMPT' || true
+read -r -d '' VALKYRIE_P3 <<'PROMPT' || true
 Convert this YAML to JSON:
 
 ```yaml
@@ -173,21 +173,21 @@ echo "=== vLLM Benchmark ==="
 echo "Output dir: $OUTDIR"
 echo ""
 
-if [ "$TARGET" = "all" ] || [ "$TARGET" = "orch" ]; then
-    ORCH_MODEL=$(curl -sf http://127.0.0.1:${ORCH_PORT:-8001}/v1/models | jq -r '.data[0].id')
-    echo "Orchestrator ($ORCH_MODEL) @ :${ORCH_PORT:-8001}"
-    run_prompt "$ORCH_URL" "$ORCH_MODEL" "$ORCH_P1" "orch-code-gen" "$OUTDIR/orch-1-codegen" 512
-    run_prompt "$ORCH_URL" "$ORCH_MODEL" "$ORCH_P2" "orch-code-review" "$OUTDIR/orch-2-review" 512
-    run_prompt "$ORCH_URL" "$ORCH_MODEL" "$ORCH_P3" "orch-reasoning" "$OUTDIR/orch-3-reasoning" 512
+if [ "$TARGET" = "all" ] || [ "$TARGET" = "thor" ]; then
+    THOR_MODEL=$(curl -sf http://127.0.0.1:${THOR_PORT:-8001}/v1/models | jq -r '.data[0].id')
+    echo "Thor ($THOR_MODEL) @ :${THOR_PORT:-8001}"
+    run_prompt "$THOR_URL" "$THOR_MODEL" "$THOR_P1" "thor-code-gen" "$OUTDIR/thor-1-codegen" 512
+    run_prompt "$THOR_URL" "$THOR_MODEL" "$THOR_P2" "thor-code-review" "$OUTDIR/thor-2-review" 512
+    run_prompt "$THOR_URL" "$THOR_MODEL" "$THOR_P3" "thor-reasoning" "$OUTDIR/thor-3-reasoning" 512
     echo ""
 fi
 
-if [ "$TARGET" = "all" ] || [ "$TARGET" = "fast" ]; then
-    FAST_MODEL=$(curl -sf http://127.0.0.1:${FAST_PORT:-8004}/v1/models | jq -r '.data[0].id')
-    echo "Fast ($FAST_MODEL) @ :${FAST_PORT:-8004}"
-    run_prompt "$FAST_URL" "$FAST_MODEL" "$FAST_P1" "fast-summarize" "$OUTDIR/fast-1-summarize" 128
-    run_prompt "$FAST_URL" "$FAST_MODEL" "$FAST_P2" "fast-extract" "$OUTDIR/fast-2-extract" 256
-    run_prompt "$FAST_URL" "$FAST_MODEL" "$FAST_P3" "fast-convert" "$OUTDIR/fast-3-convert" 256
+if [ "$TARGET" = "all" ] || [ "$TARGET" = "valkyrie" ]; then
+    VALKYRIE_MODEL=$(curl -sf http://127.0.0.1:${VALKYRIE_PORT:-8002}/v1/models | jq -r '.data[0].id')
+    echo "Valkyrie ($VALKYRIE_MODEL) @ :${VALKYRIE_PORT:-8002}"
+    run_prompt "$VALKYRIE_URL" "$VALKYRIE_MODEL" "$VALKYRIE_P1" "valkyrie-summarize" "$OUTDIR/valkyrie-1-summarize" 128
+    run_prompt "$VALKYRIE_URL" "$VALKYRIE_MODEL" "$VALKYRIE_P2" "valkyrie-extract" "$OUTDIR/valkyrie-2-extract" 256
+    run_prompt "$VALKYRIE_URL" "$VALKYRIE_MODEL" "$VALKYRIE_P3" "valkyrie-convert" "$OUTDIR/valkyrie-3-convert" 256
     echo ""
 fi
 

@@ -1,4 +1,4 @@
-# DECISIONS.md — Strix Halo Local LLM Stack
+# DECISIONS.md — Strix Halo Local LLM Stack (Norse Agent Architecture)
 
 Technical decision log for the strix-opencode project. Documents research findings, architecture rationale, and optimization strategies for running local LLM inference on AMD Strix Halo hardware.
 
@@ -107,35 +107,39 @@ All require CUDA-only kernel libraries (Marlin, ExLlama, cutlass, bitsandbytes C
 
 One model served both orch+coder roles. Worked but limited: no dedicated orchestrator intelligence, no escalation path, no adversarial testing.
 
-### Phase 3: Current 4-tier architecture
+### Phase 3: Current 6-agent Norse architecture
 
-Separates concerns across 4 tiers with dedicated models per role:
+Separates concerns across 6 agents with dedicated models per role:
 
-| Tier | Role | Backend | Port | Model | Context |
-|------|------|---------|------|-------|---------|
-| 1 | Orchestrator | vLLM (GPU) | 8001 | Qwen/Qwen2.5-14B-Instruct | 64K |
-| 2 | Coder | vLLM (GPU) | 8002 | Qwen/Qwen3-Coder-30B-A3B-Instruct | 48K |
-| 3 | Reviewer | llama.cpp (CPU) | 8011 | Llama-3.3-70B-Instruct Q4_K_M | 32K |
-| 0 | Utility | llama.cpp (CPU) | 8012 | Qwen2.5-3B-Instruct Q4_K_M | 8K |
+| Agent | Role | Backend | Port | Model | Context |
+|-------|------|---------|------|-------|---------|
+| Thor ⚡ | Primary Commander | vLLM (GPU) | 8001 | Qwen/Qwen2.5-14B-Instruct | 64K |
+| Valkyrie 🛡 | Execution Specialist | vLLM (GPU) | 8002 | Qwen/Qwen3-Coder-30B-A3B-Instruct | 48K |
+| Odin 👁️ | Supreme Architect | llama.cpp (CPU) | 8011 | Llama-3.3-70B-Instruct Q4_K_M | 32K |
+| Heimdall 👁 | Guardian | llama.cpp (CPU) | 8012 | Qwen2.5-3B-Instruct Q4_K_M | 8K |
+| Loki 🧠 | Adversarial Intelligence | llama.cpp (CPU) | 8013 | Qwen2.5-7B-Instruct Q4_K_M | 16K |
+| Frigga 🌿 | Knowledge Curator | llama.cpp (CPU) | 8014 | Qwen2.5-14B-Instruct Q4_K_M | 32K |
 
-**Why 4 tiers:**
-- **Orchestrator** needs long context for project memory and coordination, not raw coding skill → 14B dense model with 64K context
-- **Coder** needs the strongest code generation → 30B MoE with purpose-built coding capabilities
-- **Reviewer** provides escalation for architecture decisions, deep review, security audit → 70B model via CPU (GGUF INT4, doesn't compete for GPU memory)
-- **Utility** handles fast, cheap tasks (file summaries, simple transforms) → 3B model, near-instant on CPU
+**Why 6 agents:**
+- **Thor** needs long context for project memory and coordination, not raw coding skill → 14B dense model with 64K context
+- **Valkyrie** needs the strongest code generation → 30B MoE with purpose-built coding capabilities
+- **Odin** provides escalation for architecture decisions, deep review, security audit → 70B model via CPU (GGUF INT4, doesn't compete for GPU memory)
+- **Heimdall** handles fast validation, monitoring, policy enforcement → 3B model, near-instant on CPU
+- **Loki** generates adversarial challenges, edge cases, alternative approaches → 7B model for balanced capability
+- **Frigga** manages documentation, context compression, long-term knowledge → 14B model for quality writing
 
 ---
 
-## 4. Model Selection (4-Tier)
+## 4. Model Selection (Norse Agents)
 
-### Tier 1: Orchestrator — Qwen2.5-14B-Instruct
+### Thor ⚡ — Qwen2.5-14B-Instruct
 
 - **Dense 14B model**: ~28 GB in BF16
 - **Strong instruction following**: Good at planning, delegation, maintaining project context
-- **64K context**: Orchestrator sees the full project conversation history
+- **64K context**: Thor sees the full project conversation history
 - **0.35 GPU util**: Fits comfortably with 16.8 GB KV headroom
 
-### Tier 2: Coder — Qwen3-Coder-30B-A3B-Instruct
+### Valkyrie 🛡 — Qwen3-Coder-30B-A3B-Instruct
 
 - **MoE architecture**: 30.5B total parameters, 3.3B active per token
 - **Model weight size**: ~57 GB in BF16 (all 128 experts loaded, 8 active per forward pass)
@@ -143,7 +147,7 @@ Separates concerns across 4 tiers with dedicated models per role:
 - **48K context**: Sufficient for large code diffs, file contents, and multi-turn coding conversations
 - **0.60 GPU util**: Gets the largest allocation since it's the biggest model
 
-### Tier 3: Reviewer — Llama-3.3-70B-Instruct Q4_K_M GGUF
+### Odin 👁️ — Llama-3.3-70B-Instruct Q4_K_M GGUF
 
 - **70B dense model**: ~40 GB as Q4_K_M GGUF
 - **CPU-only via llama.cpp**: Does NOT compete for GPU memory with vLLM tiers
@@ -151,23 +155,37 @@ Separates concerns across 4 tiers with dedicated models per role:
 - **32K context**: Sufficient for review tasks (receives summaries, not raw histories)
 - **Slow but high-quality**: CPU inference is ~1-3 tok/s, acceptable for occasional escalation
 
-### Tier 0: Utility — Qwen2.5-3B-Instruct Q4_K_M GGUF
+### Heimdall 👁 — Qwen2.5-3B-Instruct Q4_K_M GGUF
 
 - **3B model**: ~2 GB as Q4_K_M GGUF, negligible memory footprint
 - **CPU-only**: Instant load, fast for tiny tasks
-- **8K context**: Utility tasks are short by definition
-- **Use cases**: File summaries, simple transforms, quick lookups, template generation
+- **8K context**: Validation tasks are short by definition
+- **Use cases**: Build verification, regression detection, policy enforcement, simple lookups
+
+### Loki 🧠 — Qwen2.5-7B-Instruct Q4_K_M GGUF
+
+- **7B model**: ~4 GB as Q4_K_M GGUF
+- **CPU-only**: Balanced speed for adversarial tasks
+- **16K context**: Sufficient for edge case generation and alternative approach analysis
+- **Use cases**: Adversarial testing, assumption challenging, alternative strategy generation
+
+### Frigga 🌿 — Qwen2.5-14B-Instruct Q4_K_M GGUF
+
+- **14B model**: ~8 GB as Q4_K_M GGUF
+- **CPU-only**: Quality writing at moderate speed
+- **32K context**: Comprehensive summaries and documentation
+- **Use cases**: Documentation generation, context compression, long-term memory management, session summaries
 
 ---
 
-## 5. Memory Budget (4-Tier)
+## 5. Memory Budget (Norse Agents)
 
 ### GPU Allocation (128 GB shared UMA)
 
 | Component | Fraction | Memory | Weights | KV Budget |
 |-----------|----------|--------|---------|-----------|
-| Tier 2: Coder (vLLM) | 0.60 | ~76.8 GB | ~57 GB | ~19.8 GB |
-| Tier 1: Orch (vLLM) | 0.35 | ~44.8 GB | ~28 GB | ~16.8 GB |
+| Valkyrie (30B MoE) | 0.60 | ~76.8 GB | ~57 GB | ~19.8 GB |
+| Thor (14B) | 0.35 | ~44.8 GB | ~28 GB | ~16.8 GB |
 | System headroom | 0.05 | ~6.4 GB | — | — |
 
 **Total GPU util: 0.95** — tight for single-user. Swap file + earlyoom strongly recommended.
@@ -183,19 +201,21 @@ Formula: `bytes_per_token = 2 × num_layers × num_kv_heads × head_dim × 2 (BF
 
 ### Context Window Fit
 
-| Tier | Model | Context | KV Size | Budget | Slack |
-|------|-------|---------|---------|--------|-------|
-| 1 Orch | Qwen2.5-14B | 64K | ~10.0 GB | 16.8 GB | 6.8 GB |
-| 2 Coder | Qwen3-Coder-30B | 48K | ~4.5 GB | 19.8 GB | 15.3 GB |
+| Agent | Model | Context | KV Size | Budget | Slack |
+|-------|-------|---------|---------|--------|-------|
+| Thor | Qwen2.5-14B | 64K | ~10.0 GB | 16.8 GB | 6.8 GB |
+| Valkyrie | Qwen3-Coder-30B | 48K | ~4.5 GB | 19.8 GB | 15.3 GB |
 
-### CPU Tiers (RAM, not GPU)
+### CPU Agents (RAM, not GPU)
 
-| Tier | Model | GGUF Size | RAM at Load |
-|------|-------|-----------|-------------|
-| 3 Reviewer | Llama-3.3-70B Q4_K_M | ~40 GB | ~42 GB with KV |
-| 0 Utility | Qwen2.5-3B Q4_K_M | ~2 GB | ~3 GB with KV |
+| Agent | Model | GGUF Size | RAM at Load |
+|-------|-------|-----------|-------------|
+| Odin | Llama-3.3-70B Q4_K_M | ~40 GB | ~42 GB with KV |
+| Frigga | Qwen2.5-14B Q4_K_M | ~8 GB | ~10 GB with KV |
+| Loki | Qwen2.5-7B Q4_K_M | ~4 GB | ~5 GB with KV |
+| Heimdall | Qwen2.5-3B Q4_K_M | ~2 GB | ~3 GB with KV |
 
-CPU tiers share the same physical RAM. Not expected to run concurrently with both GPU tiers at full KV pressure.
+CPU agents share the same physical RAM. Running all 4 simultaneously adds ~60 GB on top of GPU allocation. Swap file essential.
 
 ### How vLLM Allocates Memory (from source code analysis)
 
@@ -281,12 +301,13 @@ echo 'vm.swappiness=80' | sudo tee /etc/sysctl.d/99-swappiness.conf
 
 OpenCode's built-in maxTokens defaults can exceed local model context windows. The template `.opencode/oh-my-opencode.json` caps output tokens per agent:
 
-| Agent | maxTokens | Tier | Rationale |
-|-------|-----------|------|-----------|
-| sisyphus | 32,768 | Orch (64K ctx) | 32K output leaves ~32K for input |
-| hephaestus, sisyphus-junior | 24,576 | Coder (48K ctx) | 24K output leaves ~24K for input |
-| oracle, prometheus, metis, momus | 16,384 | Reviewer (32K ctx) | 16K output leaves ~16K for input |
-| librarian, explore, atlas | 4,096 | Utility (8K ctx) | 4K output leaves ~4K for input |
+| Agent | maxTokens | Norse Agent | Rationale |
+|-------|-----------|-------------|-----------|
+| sisyphus | 32,768 | Thor (64K ctx) | 32K output leaves ~32K for input |
+| hephaestus, sisyphus-junior | 24,576 | Valkyrie (48K ctx) | 24K output leaves ~24K for input |
+| oracle, prometheus | 16,384 | Odin (32K ctx) | 16K output leaves ~16K for input |
+| metis, momus | 16,384 | Frigga (32K ctx) | 16K output leaves ~16K for input |
+| librarian, explore, atlas | 4,096 | Heimdall (8K ctx) | 4K output leaves ~4K for input |
 
 Copy to `.opencode/` in each target project. Remove/raise limits when using cloud models.
 
@@ -306,7 +327,7 @@ Copy to `.opencode/` in each target project. Remove/raise limits when using clou
 
 4. **Context tuning**: If KV monitoring shows consistent underuse, reduce context to free memory. If consistently hitting limits, consider reducing one tier's GPU util to give the other more.
 
-5. **Tier 3/0 on GPU**: If vLLM ever supports GGUF or INT4 on ROCm, the reviewer/utility could move to GPU for faster inference.
+5. **CPU agents on GPU**: If vLLM ever supports GGUF or INT4 on ROCm, Odin/Loki/Frigga/Heimdall could move to GPU for faster inference.
 
 ### Long-term
 
