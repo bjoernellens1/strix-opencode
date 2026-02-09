@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cp -n .env.example .env 2>/dev/null || true
+
+MODE="${1:-vllm}"
+
+case "$MODE" in
+  vllm)
+    docker compose -f compose/vllm.yml --env-file .env up -d
+    ;;
+  hybrid-radv)
+    docker compose -f compose/vllm.yml -f compose/fallback.vulkan-radv.orch.yml --env-file .env up -d
+    ;;
+  hybrid-rocm)
+    docker compose -f compose/vllm.yml -f compose/fallback.rocm-6.4.4-rocwmma.orch.yml --env-file .env up -d
+    ;;
+  *)
+    echo "Usage: $0 {vllm|hybrid-radv|hybrid-rocm}"
+    exit 1
+    ;;
+esac

@@ -1,0 +1,17 @@
+services:
+  llama_orchestrator:
+    image: docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4-rocwmma
+    container_name: llama_orchestrator_rocm
+    network_mode: host
+    devices: ["/dev/dri", "/dev/kfd"]
+    security_opt: ["seccomp=unconfined"]
+    group_add: ["video", "render"]
+    volumes:
+      - ${LLAMA_MODELS_DIR}:/models
+    command: >
+      bash -lc "
+      llama-server
+      --host 0.0.0.0 --port ${LLAMA_ORCH_PORT}
+      -m /models/${ORCH_GGUF}
+      --no-mmap -ngl 999 --flash-attn on
+      "

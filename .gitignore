@@ -1,0 +1,19 @@
+# Model weights (GGUF files for llama.cpp)
+models/
+
+# Runtime environment (contains secrets / local overrides)
+.env
+
+# HuggingFace & vLLM caches (large, machine-local)
+.cache/
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Python
+__pycache__/
+*.pyc
