@@ -6,36 +6,52 @@
   ],
 
   "provider": {
-    "local_orch": {
+    "local_thor": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Strix vLLM Orchestrator (Tier 1 GPU)",
+      "name": "Thor ⚡ — Primary Commander (GPU, Qwen2.5-14B)",
       "options": { "baseURL": "http://127.0.0.1:8001/v1", "apiKey": "EMPTY" },
       "models": {
-        "orch": { "name": "Qwen/Qwen2.5-14B-Instruct", "tools": true }
+        "thor": { "name": "Qwen/Qwen2.5-14B-Instruct", "tools": true }
       }
     },
-    "local_coder": {
+    "local_valkyrie": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Strix vLLM Coder (Tier 2 GPU)",
+      "name": "Valkyrie 🛡 — Execution Specialist (GPU, Qwen3-Coder-30B)",
       "options": { "baseURL": "http://127.0.0.1:8002/v1", "apiKey": "EMPTY" },
       "models": {
-        "coder": { "name": "Qwen/Qwen3-Coder-30B-A3B-Instruct", "tools": true }
+        "valkyrie": { "name": "Qwen/Qwen3-Coder-30B-A3B-Instruct", "tools": true }
       }
     },
-    "local_reviewer": {
+    "local_odin": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Strix llama.cpp Reviewer (Tier 3 CPU)",
+      "name": "Odin 👁️ — Supreme Architect (CPU, Llama-3.3-70B)",
       "options": { "baseURL": "http://127.0.0.1:8011/v1", "apiKey": "EMPTY" },
       "models": {
-        "reviewer": { "name": "llama-3.3-70b-instruct", "tools": true }
+        "odin": { "name": "llama-3.3-70b-instruct", "tools": true }
       }
     },
-    "local_utility": {
+    "local_heimdall": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Strix llama.cpp Utility (Tier 0 CPU)",
+      "name": "Heimdall 👁 — Guardian (CPU, Qwen2.5-3B)",
       "options": { "baseURL": "http://127.0.0.1:8012/v1", "apiKey": "EMPTY" },
       "models": {
-        "utility": { "name": "qwen2.5-3b-instruct", "tools": true }
+        "heimdall": { "name": "qwen2.5-3b-instruct", "tools": true }
+      }
+    },
+    "local_loki": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Loki 🧠 — Adversarial Intelligence (CPU, Qwen2.5-7B)",
+      "options": { "baseURL": "http://127.0.0.1:8013/v1", "apiKey": "EMPTY" },
+      "models": {
+        "loki": { "name": "qwen2.5-7b-instruct", "tools": true }
+      }
+    },
+    "local_frigga": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Frigga 🌿 — Knowledge Curator (CPU, Qwen2.5-14B)",
+      "options": { "baseURL": "http://127.0.0.1:8014/v1", "apiKey": "EMPTY" },
+      "models": {
+        "frigga": { "name": "qwen2.5-14b-instruct", "tools": true }
       }
     },
     "cloud_planner": {
@@ -47,9 +63,11 @@
   },
 
   "agent": {
-    "primary":  { "mode": "primary",  "model": "local_orch:orch" },
-    "coder":    { "mode": "subagent", "model": "local_coder:coder" },
-    "reviewer": { "mode": "subagent", "model": "local_reviewer:reviewer" },
-    "utility":  { "mode": "subagent", "model": "local_utility:utility" }
+    "primary":  { "mode": "primary",  "model": "local_thor:thor" },
+    "coder":    { "mode": "subagent", "model": "local_valkyrie:valkyrie" },
+    "reviewer": { "mode": "subagent", "model": "local_odin:odin" },
+    "utility":  { "mode": "subagent", "model": "local_heimdall:heimdall" },
+    "loki":     { "mode": "subagent", "model": "local_loki:loki" },
+    "frigga":   { "mode": "subagent", "model": "local_frigga:frigga" }
   }
 }
