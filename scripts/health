@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+function check() {
+  local port="$1"
+  echo "== :$port =="
+  curl -s "http://127.0.0.1:${port}/v1/models" | head -c 400 || true
+  echo -e "\n"
+}
+
+source .env || true
+check "${ORCH_PORT:-8001}"
+check "${CODER_PORT:-8002}"
+check "${FAST_PORT:-8004}"
+check "${LLAMA_ORCH_PORT:-8011}"

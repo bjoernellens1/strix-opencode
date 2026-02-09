@@ -1,0 +1,57 @@
+services:
+  vllm_orchestrator:
+    image: docker.io/kyuz0/vllm-therock-gfx1151:latest
+    container_name: vllm_orchestrator
+    network_mode: host
+    devices: ["/dev/kfd", "/dev/dri"]
+    security_opt: ["seccomp=unconfined"]
+    group_add: ["video", "render"]
+    environment:
+      - HF_HOME=${HF_HOME}
+    volumes:
+      - ${HF_HOME}:${HF_HOME}
+      - ${VLLM_CACHE}:${VLLM_CACHE}
+    command: >
+      vllm serve ${ORCH_MODEL}
+      --host 0.0.0.0 --port ${ORCH_PORT}
+      --dtype auto
+      --gpu-memory-utilization ${ORCH_GPU_UTIL}
+      --max-model-len ${ORCH_MAX_LEN}
+
+  vllm_coder:
+    image: docker.io/kyuz0/vllm-therock-gfx1151:latest
+    container_name: vllm_coder
+    network_mode: host
+    devices: ["/dev/kfd", "/dev/dri"]
+    security_opt: ["seccomp=unconfined"]
+    group_add: ["video", "render"]
+    environment:
+      - HF_HOME=${HF_HOME}
+    volumes:
+      - ${HF_HOME}:${HF_HOME}
+      - ${VLLM_CACHE}:${VLLM_CACHE}
+    command: >
+      vllm serve ${CODER_MODEL}
+      --host 0.0.0.0 --port ${CODER_PORT}
+      --dtype auto
+      --gpu-memory-utilization ${CODER_GPU_UTIL}
+      --max-model-len ${CODER_MAX_LEN}
+
+  vllm_fast:
+    image: docker.io/kyuz0/vllm-therock-gfx1151:latest
+    container_name: vllm_fast
+    network_mode: host
+    devices: ["/dev/kfd", "/dev/dri"]
+    security_opt: ["seccomp=unconfined"]
+    group_add: ["video", "render"]
+    environment:
+      - HF_HOME=${HF_HOME}
+    volumes:
+      - ${HF_HOME}:${HF_HOME}
+      - ${VLLM_CACHE}:${VLLM_CACHE}
+    command: >
+      vllm serve ${FAST_MODEL}
+      --host 0.0.0.0 --port ${FAST_PORT}
+      --dtype auto
+      --gpu-memory-utilization ${FAST_GPU_UTIL}
+      --max-model-len ${FAST_MAX_LEN}
