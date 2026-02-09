@@ -1,0 +1,248 @@
+# Hybrid Norse Agent Architecture — Phase 5
+#
+# llama.cpp (ROCm GPU, GGUF Q4_K_M) for main agents:
+#   - Thor: Qwen2.5-14B-Instruct (~8 GB)
+#   - Valkyrie: Qwen3-Coder-30B-A3B-Instruct (~17 GB)
+#   - Odin: Llama-3.3-70B-Instruct (~40 GB) — on-demand
+#
+# vLLM (GPU, BF16) for utility agents:
+#   - Heimdall: Qwen2.5-3B-Instruct (~6 GB)
+#   - Loki: Qwen2.5-7B-Instruct (~14 GB)
+#   - Frigga: Qwen2.5-14B-Instruct (~28 GB)
+#
+# Memory budget (120 GB usable):
+#   Thor (8) + Valkyrie (17) + utility (max 28) = ~53 GB
+#   Thor (8) + Valkyrie (17) + Odin (40) = ~65 GB (stops Valkyrie)
+#
+# All llama.cpp servers use -ngl 999 for full GPU offload + flash-attn.
+# Staggered startup via depends_on healthchecks.
+
+services:
+  # ====================================================================
+  # TIER 0: CORE — llama.cpp Thor (always running)
+  # ====================================================================
+
+  llama_thor:
+    image: docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4-rocwmma
+    container_name: llama_thor
+    network_mode: host
+    devices: ["/dev/dri", "/dev/kfd"]
+    security_opt: ["seccomp=unconfined"]
+    group_add: ["video", "render"]
+    volumes:
+      - ${LLAMA_MODELS_DIR}:/models
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:${THOR_PORT}/v1/models || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 120s
+    command: >
+      bash -lc "
+      llama-server
+      --host 0.0.0.0 --port ${THOR_PORT}
+      -m /models/${THOR_GGUF}
+      -c ${THOR_CTX}
+      -ngl 999 --flash-attn
+      -t ${THOR_THREADS:-8}
+      --no-mmap
+      "
+
+  # ====================================================================
+  # TIER 1: CODER — llama.cpp Valkyrie (standard profile)
+  # ====================================================================
+
+  llama_valkyrie:
+    image: docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4-rocwmma
+    container_name: llama_valkyrie
+    network_mode: host
+    devices: ["/dev/dri", "/dev/kfd"]
+    security_opt: ["seccomp=unconfined"]
+    group_add: ["video", "render"]
+    profiles: ["standard"]
+    volumes:
+      - ${LLAMA_MODELS_DIR}:/models
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:${VALKYRIE_PORT}/v1/models || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 120s
+    depends_on:
+      llama_thor:
+        condition: service_healthy
+    command: >
+      bash -lc "
+      llama-server
+      --host 0.0.0.0 --port ${VALKYRIE_PORT}
+      -m /models/${VALKYRIE_GGUF}
+      -c ${VALKYRIE_CTX}
+      -ngl 999 --flash-attn
+      -t ${VALKYRIE_THREADS:-8}
+      --no-mmap
+      "
+
+  # ====================================================================
+  # TIER 2: UTILITY — vLLM (BF16, on-demand via Bifrost)
+  # ====================================================================
+
+  vllm_heimdall:
+    image: docker.io/kyuz0/vllm-therock-gfx1151:latest
+    container_name: vllm_heimdall
+    network_mode: host
+    devices: ["/dev/kfd", "/dev/dri"]
+    security_opt: ["seccomp=unconfined"]
+    group_add: ["video", "render"]
+    profiles: ["heimdall"]
+    environment:
+      - HF_HOME=${HF_HOME}
+      - HF_TOKEN=${HF_TOKEN}
+    volumes:
+      - ${HF_HOME}:${HF_HOME}
+      - ${VLLM_CACHE}:${VLLM_CACHE}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:${HEIMDALL_PORT}/v1/models || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 120s
+    depends_on:
+      llama_thor:
+        condition: service_healthy
+    command: >
+      vllm serve ${HEIMDALL_MODEL}
+      --host 0.0.0.0 --port ${HEIMDALL_PORT}
+      --dtype auto
+      --gpu-memory-utilization ${HEIMDALL_GPU_UTIL}
+      --max-model-len ${HEIMDALL_MAX_LEN}
+      --kv-cache-dtype auto
+      --max-num-seqs ${HEIMDALL_MAX_NUM_SEQS:-4}
+      --enable-prefix-caching
+
+  vllm_loki:
+    image: docker.io/kyuz0/vllm-therock-gfx1151:latest
+    container_name: vllm_loki
+    network_mode: host
+    devices: ["/dev/kfd", "/dev/dri"]
+    security_opt: ["seccomp=unconfined"]
+    group_add: ["video", "render"]
+    profiles: ["loki"]
+    environment:
+      - HF_HOME=${HF_HOME}
+      - HF_TOKEN=${HF_TOKEN}
+    volumes:
+      - ${HF_HOME}:${HF_HOME}
+      - ${VLLM_CACHE}:${VLLM_CACHE}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:${LOKI_PORT}/v1/models || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 120s
+    depends_on:
+      llama_thor:
+        condition: service_healthy
+    command: >
+      vllm serve ${LOKI_MODEL}
+      --host 0.0.0.0 --port ${LOKI_PORT}
+      --dtype auto
+      --gpu-memory-utilization ${LOKI_GPU_UTIL}
+      --max-model-len ${LOKI_MAX_LEN}
+      --kv-cache-dtype auto
+      --max-num-seqs ${LOKI_MAX_NUM_SEQS:-4}
+      --enable-prefix-caching
+
+  vllm_frigga:
+    image: docker.io/kyuz0/vllm-therock-gfx1151:latest
+    container_name: vllm_frigga
+    network_mode: host
+    devices: ["/dev/kfd", "/dev/dri"]
+    security_opt: ["seccomp=unconfined"]
+    group_add: ["video", "render"]
+    profiles: ["frigga"]
+    environment:
+      - HF_HOME=${HF_HOME}
+      - HF_TOKEN=${HF_TOKEN}
+    volumes:
+      - ${HF_HOME}:${HF_HOME}
+      - ${VLLM_CACHE}:${VLLM_CACHE}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:${FRIGGA_PORT}/v1/models || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 120s
+    depends_on:
+      llama_thor:
+        condition: service_healthy
+    command: >
+      vllm serve ${FRIGGA_MODEL}
+      --host 0.0.0.0 --port ${FRIGGA_PORT}
+      --dtype auto
+      --gpu-memory-utilization ${FRIGGA_GPU_UTIL}
+      --max-model-len ${FRIGGA_MAX_LEN}
+      --kv-cache-dtype auto
+      --max-num-seqs ${FRIGGA_MAX_NUM_SEQS:-4}
+      --enable-prefix-caching
+
+  # ====================================================================
+  # TIER 3: ESCALATION — llama.cpp Odin (on-demand, stops Valkyrie)
+  # ====================================================================
+
+  llama_odin:
+    image: docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4-rocwmma
+    container_name: llama_odin
+    network_mode: host
+    devices: ["/dev/dri", "/dev/kfd"]
+    security_opt: ["seccomp=unconfined"]
+    group_add: ["video", "render"]
+    profiles: ["odin"]
+    volumes:
+      - ${LLAMA_MODELS_DIR}:/models
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:${ODIN_PORT}/v1/models || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 90
+      start_period: 180s
+    depends_on:
+      llama_thor:
+        condition: service_healthy
+    command: >
+      bash -lc "
+      llama-server
+      --host 0.0.0.0 --port ${ODIN_PORT}
+      -m /models/${ODIN_GGUF}
+      -c ${ODIN_CTX}
+      -ngl 999 --flash-attn
+      -t ${ODIN_THREADS:-16}
+      --no-mmap
+      "
+
+  # ====================================================================
+  # BIFROST — Scheduler daemon (FastAPI, manages both backends)
+  # ====================================================================
+
+  bifrost:
+    build:
+      context: ../bifrost
+      dockerfile: Dockerfile
+    container_name: bifrost
+    network_mode: host
+    environment:
+      - BIFROST_PORT=${BIFROST_PORT:-8899}
+      - COMPOSE_PROJECT_DIR=${COMPOSE_PROJECT_DIR:-/app}
+      - DOCKER_HOST=${DOCKER_HOST:-unix:///var/run/docker.sock}
+      # Pass port configs for health checks
+      - THOR_PORT=${THOR_PORT}
+      - VALKYRIE_PORT=${VALKYRIE_PORT}
+      - ODIN_PORT=${ODIN_PORT}
+      - HEIMDALL_PORT=${HEIMDALL_PORT}
+      - LOKI_PORT=${LOKI_PORT}
+      - FRIGGA_PORT=${FRIGGA_PORT}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ..:/app:ro
+    profiles: ["bifrost"]
+    command: >
+      uvicorn app:app --host 0.0.0.0 --port ${BIFROST_PORT:-8899}
