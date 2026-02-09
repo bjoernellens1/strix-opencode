@@ -1,15 +1,25 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -uo pipefail
+
+# Source .env for port overrides; fall back to defaults if missing
+if [[ -f .env ]]; then
+  set -a
+  source .env
+  set +a
+fi
 
 function check() {
   local port="$1"
-  echo "== :$port =="
-  curl -s "http://127.0.0.1:${port}/v1/models" | head -c 400 || true
-  echo -e "\n"
+  local label="$2"
+  echo "== ${label} :${port} =="
+  if response=$(curl -sf --connect-timeout 3 --max-time 5 "http://127.0.0.1:${port}/v1/models" 2>&1); then
+    echo "$response" | head -c 400
+  else
+    echo "(not responding)"
+  fi
+  echo ""
 }
 
-source .env || true
-check "${ORCH_PORT:-8001}"
-check "${CODER_PORT:-8002}"
-check "${FAST_PORT:-8004}"
-check "${LLAMA_ORCH_PORT:-8011}"
+check "${ORCH_PORT:-8001}" "vLLM Orchestrator+Coder"
+check "${FAST_PORT:-8004}" "vLLM Fast"
+check "${LLAMA_ORCH_PORT:-8011}" "llama.cpp Orchestrator"

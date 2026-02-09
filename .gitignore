@@ -3,6 +3,9 @@ models/
 
 # Runtime environment (contains secrets / local overrides)
 .env
+*.secret
+*.secrets
+.secrets/
 
 # HuggingFace & vLLM caches (large, machine-local)
 .cache/
@@ -13,6 +16,9 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+# Benchmark results (regenerated per run)
+results/
 
 # Python
 __pycache__/

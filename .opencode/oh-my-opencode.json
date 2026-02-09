@@ -1,0 +1,47 @@
+{
+  "$schema": "https://oh-my-opencode.dev/config.json",
+
+  "_comment": [
+    "Template: recommended maxTokens for local vLLM models on Strix Halo.",
+    "Copy this file into your target project's .opencode/ directory.",
+    "",
+    "These caps prevent the local models from exceeding their vLLM context windows.",
+    "Orchestrator (Qwen3-Coder-30B-A3B): 32K context → 16K output leaves ~16K for input.",
+    "Fast utility (Qwen2.5-7B): 8K context → 4K output leaves ~4K for input.",
+    "",
+    "If you switch to cloud models, remove or raise these limits."
+  ],
+
+  "agents": {
+    "sisyphus": {
+      "maxTokens": 16384
+    },
+    "hephaestus": {
+      "maxTokens": 16384
+    },
+    "sisyphus-junior": {
+      "maxTokens": 16384
+    },
+    "oracle": {
+      "maxTokens": 16384
+    },
+    "prometheus": {
+      "maxTokens": 16384
+    },
+    "metis": {
+      "maxTokens": 8192
+    },
+    "momus": {
+      "maxTokens": 8192
+    },
+    "librarian": {
+      "maxTokens": 4096
+    },
+    "explore": {
+      "maxTokens": 4096
+    },
+    "atlas": {
+      "maxTokens": 4096
+    }
+  }
+}

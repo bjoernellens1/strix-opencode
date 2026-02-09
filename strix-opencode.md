@@ -96,10 +96,10 @@ ORCH_MODEL=openai/gpt-oss-120b
 CODER_MODEL=Qwen/Qwen3-Coder-30B-A3B-Instruct
 FAST_MODEL=Qwen/Qwen2.5-7B-Instruct
 
-# ===== vLLM tuning (single user; keep conservative) =====
-ORCH_GPU_UTIL=0.85
-CODER_GPU_UTIL=0.80
-FAST_GPU_UTIL=0.70
+# ===== vLLM tuning (single user; fractions must sum to ≤ 1.0 for shared GPU) =====
+ORCH_GPU_UTIL=0.45
+CODER_GPU_UTIL=0.35
+FAST_GPU_UTIL=0.20
 ORCH_MAX_LEN=8192
 CODER_MAX_LEN=8192
 FAST_MAX_LEN=4096
@@ -336,20 +336,31 @@ docker compose -f compose/fallback.rocm-6.4.4-rocwmma.orch.yml --env-file .env d
 
 ```bash
 #!/usr/bin/env bash
-set -euo pipefail
+set -uo pipefail
+
+# Source .env for port overrides; fall back to defaults if missing
+if [[ -f .env ]]; then
+  set -a
+  source .env
+  set +a
+fi
 
 function check() {
   local port="$1"
-  echo "== :$port =="
-  curl -s "http://127.0.0.1:${port}/v1/models" | head -c 400 || true
-  echo -e "\n"
+  local label="$2"
+  echo "== ${label} :${port} =="
+  if response=$(curl -sf --connect-timeout 3 --max-time 5 "http://127.0.0.1:${port}/v1/models" 2>&1); then
+    echo "$response" | head -c 400
+  else
+    echo "(not responding)"
+  fi
+  echo ""
 }
 
-source .env || true
-check "${ORCH_PORT:-8001}"
-check "${CODER_PORT:-8002}"
-check "${FAST_PORT:-8004}"
-check "${LLAMA_ORCH_PORT:-8011}"
+check "${ORCH_PORT:-8001}" "vLLM Orchestrator"
+check "${CODER_PORT:-8002}" "vLLM Coder"
+check "${FAST_PORT:-8004}" "vLLM Fast"
+check "${LLAMA_ORCH_PORT:-8011}" "llama.cpp Orchestrator"
 ```
 
 #### `scripts/switch-orch`
@@ -399,11 +410,16 @@ Preferred approach: **git submodule** so you can pin your fork.
 
 Agent steps:
 
-1. Add submodule:
+1. If a submodule or directory already exists at the path, remove it from Git tracking first:
+
+   * `git rm opencode/oh-my-opencode`
+   * `rm -rf .git/modules/opencode/oh-my-opencode`
+
+2. Add submodule:
 
    * `git submodule add https://github.com/<YOUR_ORG_OR_USER>/oh-my-opencode opencode/oh-my-opencode`
-2. Ensure OpenCode plugin path points to `./oh-my-opencode` (already done in opencode.jsonc).
-3. Add documentation in README on how to update submodule.
+3. Ensure OpenCode plugin path points to `./oh-my-opencode` (already done in opencode.jsonc).
+4. Add documentation in README on how to update submodule.
 
 ---
 

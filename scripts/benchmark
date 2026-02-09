@@ -1,0 +1,210 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Benchmark vLLM endpoints with real-world prompts.
+# Measures: time-to-first-token (TTFT), total time, tokens/sec, and captures output for quality comparison.
+#
+# Usage:
+#   ./scripts/benchmark                    # benchmark both endpoints
+#   ./scripts/benchmark orch               # orchestrator only
+#   ./scripts/benchmark fast               # fast only
+#   ./scripts/benchmark orch results/bf16  # save to custom dir
+
+TARGET="${1:-all}"
+OUTDIR="${2:-results/$(date +%Y%m%d-%H%M%S)}"
+mkdir -p "$OUTDIR"
+
+ORCH_URL="http://127.0.0.1:${ORCH_PORT:-8001}/v1/chat/completions"
+FAST_URL="http://127.0.0.1:${FAST_PORT:-8004}/v1/chat/completions"
+
+# --- Prompts ---
+
+# Orch/Coder prompts: coding + reasoning tasks an agent would send
+read -r -d '' ORCH_P1 <<'PROMPT' || true
+Write a Python function that finds the longest increasing subsequence in a list of integers. Include type hints, handle edge cases, and add a brief docstring.
+PROMPT
+
+read -r -d '' ORCH_P2 <<'PROMPT' || true
+Review this code and find the bug:
+
+```python
+def merge_sorted(a, b):
+    result = []
+    i = j = 0
+    while i < len(a) and j < len(b):
+        if a[i] <= b[j]:
+            result.append(a[i])
+            i += 1
+        else:
+            result.append(b[j])
+            j += 1
+    return result
+```
+PROMPT
+
+read -r -d '' ORCH_P3 <<'PROMPT' || true
+Explain the tradeoffs between using a B-tree vs a hash index in a database. When would you pick one over the other? Be concise — 3-4 paragraphs max.
+PROMPT
+
+# Fast/utility prompts: short summarization + extraction tasks
+read -r -d '' FAST_P1 <<'PROMPT' || true
+Summarize in one sentence: "The AMD Strix Halo platform uses a unified memory architecture where the CPU and GPU share 128GB of LPDDR5X memory. This means GPU workloads access the same physical memory as CPU workloads, eliminating the need for PCIe transfers but introducing contention for memory bandwidth."
+PROMPT
+
+read -r -d '' FAST_P2 <<'PROMPT' || true
+Extract the function names and their return types from this code:
+
+```typescript
+export function parseConfig(raw: string): Config { ... }
+export async function loadModel(path: string): Promise<Model> { ... }
+function validateInput(data: unknown): data is ValidData { ... }
+```
+PROMPT
+
+read -r -d '' FAST_P3 <<'PROMPT' || true
+Convert this YAML to JSON:
+
+```yaml
+server:
+  host: 0.0.0.0
+  port: 8080
+  ssl: true
+database:
+  url: postgres://localhost/mydb
+  pool_size: 10
+```
+PROMPT
+
+# --- Runner ---
+
+run_prompt() {
+    local url="$1" model="$2" prompt="$3" label="$4" outfile="$5" max_tokens="$6"
+
+    local payload
+    payload=$(jq -n \
+        --arg model "$model" \
+        --arg prompt "$prompt" \
+        --argjson max_tokens "$max_tokens" \
+        --argjson temperature 0 \
+        '{model: $model, messages: [{role: "user", content: $prompt}], max_tokens: $max_tokens, temperature: $temperature, stream: true}')
+
+    echo "  [$label] sending..."
+
+    local tmpfile
+    tmpfile=$(mktemp)
+    local start_ns first_token_ns end_ns ttft_ms total_ms
+    local token_count=0
+    local full_response=""
+    local got_first=false
+
+    start_ns=$(date +%s%N)
+
+    curl -sf -N -X POST "$url" \
+        -H "Content-Type: application/json" \
+        -d "$payload" 2>/dev/null | while IFS= read -r line; do
+        line="${line#data: }"
+        [ -z "$line" ] && continue
+        [ "$line" = "[DONE]" ] && break
+
+        local delta
+        delta=$(echo "$line" | jq -r '.choices[0].delta.content // empty' 2>/dev/null) || continue
+        [ -z "$delta" ] && continue
+
+        if [ "$got_first" = false ]; then
+            first_token_ns=$(date +%s%N)
+            got_first=true
+        fi
+        token_count=$((token_count + 1))
+        full_response+="$delta"
+    done > "$tmpfile"
+
+    end_ns=$(date +%s%N)
+
+    # Non-streaming fallback to capture response if streaming parse failed
+    if [ "$token_count" -eq 0 ]; then
+        start_ns=$(date +%s%N)
+        local resp
+        local payload_nostream
+        payload_nostream=$(jq -n \
+            --arg model "$model" \
+            --arg prompt "$prompt" \
+            --argjson max_tokens "$max_tokens" \
+            --argjson temperature 0 \
+            '{model: $model, messages: [{role: "user", content: $prompt}], max_tokens: $max_tokens, temperature: $temperature, stream: false}')
+
+        resp=$(curl -sf -X POST "$url" \
+            -H "Content-Type: application/json" \
+            -d "$payload_nostream" 2>/dev/null)
+        end_ns=$(date +%s%N)
+        first_token_ns=$end_ns
+
+        full_response=$(echo "$resp" | jq -r '.choices[0].message.content // "ERROR"')
+        token_count=$(echo "$resp" | jq -r '.usage.completion_tokens // 0')
+    fi
+
+    total_ms=$(( (end_ns - start_ns) / 1000000 ))
+    ttft_ms=$(( (first_token_ns - start_ns) / 1000000 ))
+
+    local tps="0"
+    if [ "$total_ms" -gt 0 ] && [ "$token_count" -gt 0 ]; then
+        tps=$(awk "BEGIN {printf \"%.1f\", $token_count / ($total_ms / 1000.0)}")
+    fi
+
+    echo "  [$label] ${token_count} tokens, TTFT=${ttft_ms}ms, total=${total_ms}ms, ${tps} tok/s"
+
+    # Save results
+    cat > "${outfile}.json" <<EOF
+{
+  "label": "$label",
+  "model": "$model",
+  "tokens": $token_count,
+  "ttft_ms": $ttft_ms,
+  "total_ms": $total_ms,
+  "tokens_per_sec": $tps
+}
+EOF
+    echo "$full_response" > "${outfile}.txt"
+    rm -f "$tmpfile"
+}
+
+# --- Main ---
+
+echo "=== vLLM Benchmark ==="
+echo "Output dir: $OUTDIR"
+echo ""
+
+if [ "$TARGET" = "all" ] || [ "$TARGET" = "orch" ]; then
+    ORCH_MODEL=$(curl -sf http://127.0.0.1:${ORCH_PORT:-8001}/v1/models | jq -r '.data[0].id')
+    echo "Orchestrator ($ORCH_MODEL) @ :${ORCH_PORT:-8001}"
+    run_prompt "$ORCH_URL" "$ORCH_MODEL" "$ORCH_P1" "orch-code-gen" "$OUTDIR/orch-1-codegen" 512
+    run_prompt "$ORCH_URL" "$ORCH_MODEL" "$ORCH_P2" "orch-code-review" "$OUTDIR/orch-2-review" 512
+    run_prompt "$ORCH_URL" "$ORCH_MODEL" "$ORCH_P3" "orch-reasoning" "$OUTDIR/orch-3-reasoning" 512
+    echo ""
+fi
+
+if [ "$TARGET" = "all" ] || [ "$TARGET" = "fast" ]; then
+    FAST_MODEL=$(curl -sf http://127.0.0.1:${FAST_PORT:-8004}/v1/models | jq -r '.data[0].id')
+    echo "Fast ($FAST_MODEL) @ :${FAST_PORT:-8004}"
+    run_prompt "$FAST_URL" "$FAST_MODEL" "$FAST_P1" "fast-summarize" "$OUTDIR/fast-1-summarize" 128
+    run_prompt "$FAST_URL" "$FAST_MODEL" "$FAST_P2" "fast-extract" "$OUTDIR/fast-2-extract" 256
+    run_prompt "$FAST_URL" "$FAST_MODEL" "$FAST_P3" "fast-convert" "$OUTDIR/fast-3-convert" 256
+    echo ""
+fi
+
+# Summary table
+echo "=== Summary ==="
+printf "%-20s %8s %8s %8s %8s\n" "Test" "Tokens" "TTFT" "Total" "Tok/s"
+printf "%-20s %8s %8s %8s %8s\n" "----" "------" "----" "-----" "-----"
+for f in "$OUTDIR"/*.json; do
+    [ -f "$f" ] || continue
+    printf "%-20s %8s %8s %8s %8s\n" \
+        "$(jq -r .label "$f")" \
+        "$(jq -r .tokens "$f")" \
+        "$(jq -r '.ttft_ms | tostring + "ms"' "$f")" \
+        "$(jq -r '.total_ms | tostring + "ms"' "$f")" \
+        "$(jq -r '.tokens_per_sec | tostring' "$f")"
+done
+
+echo ""
+echo "Full responses saved in $OUTDIR/*.txt"
+echo "Metrics saved in $OUTDIR/*.json"
