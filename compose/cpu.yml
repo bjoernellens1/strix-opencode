@@ -1,16 +1,18 @@
-# Tier 3 (CPU): Escalation Reviewer — Llama-3.3-70B-Instruct Q4_K_M GGUF
-# Tier 0 (CPU): Utility Agent — Qwen2.5-3B-Instruct Q4_K_M GGUF
+# Odin 👁️ (CPU): Supreme Architect / Escalation Reviewer — Llama-3.3-70B Q4_K_M GGUF
+# Heimdall 👁 (CPU): Guardian / Monitoring & Validation — Qwen2.5-3B Q4_K_M GGUF
+# Loki 🧠 (CPU): Adversarial / Creative Intelligence — Qwen2.5-7B Q4_K_M GGUF
+# Frigga 🌿 (CPU): Knowledge / Context Memory Curator — Qwen2.5-14B Q4_K_M GGUF
 #
-# Both run on llama.cpp (CPU-only, no GPU). They share system RAM with the
+# All run on llama.cpp (CPU-only, no GPU). They share system RAM with the
 # GPU tiers but only load on demand — not expected to run concurrently with
 # both vLLM services at full KV pressure.
 #
 # GGUF files must be pre-downloaded into ./models/ before starting.
 
 services:
-  llama_reviewer:
+  llama_odin:
     image: docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv
-    container_name: llama_reviewer
+    container_name: llama_odin
     network_mode: host
     devices: ["/dev/dri"]
     security_opt: ["seccomp=unconfined"]
@@ -20,16 +22,16 @@ services:
     command: >
       bash -lc "
       llama-server
-      --host 0.0.0.0 --port ${REVIEWER_PORT}
-      -m /models/${REVIEWER_GGUF}
-      -c ${REVIEWER_CTX}
-      -t ${REVIEWER_THREADS}
+      --host 0.0.0.0 --port ${ODIN_PORT}
+      -m /models/${ODIN_GGUF}
+      -c ${ODIN_CTX}
+      -t ${ODIN_THREADS}
       --no-mmap
       "
 
-  llama_utility:
+  llama_heimdall:
     image: docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv
-    container_name: llama_utility
+    container_name: llama_heimdall
     network_mode: host
     devices: ["/dev/dri"]
     security_opt: ["seccomp=unconfined"]
@@ -39,9 +41,47 @@ services:
     command: >
       bash -lc "
       llama-server
-      --host 0.0.0.0 --port ${UTILITY_PORT}
-      -m /models/${UTILITY_GGUF}
-      -c ${UTILITY_CTX}
-      -t ${UTILITY_THREADS}
+      --host 0.0.0.0 --port ${HEIMDALL_PORT}
+      -m /models/${HEIMDALL_GGUF}
+      -c ${HEIMDALL_CTX}
+      -t ${HEIMDALL_THREADS}
+      --no-mmap
+      "
+
+  llama_loki:
+    image: docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv
+    container_name: llama_loki
+    network_mode: host
+    devices: ["/dev/dri"]
+    security_opt: ["seccomp=unconfined"]
+    group_add: ["video"]
+    volumes:
+      - ${LLAMA_MODELS_DIR}:/models
+    command: >
+      bash -lc "
+      llama-server
+      --host 0.0.0.0 --port ${LOKI_PORT}
+      -m /models/${LOKI_GGUF}
+      -c ${LOKI_CTX}
+      -t ${LOKI_THREADS}
+      --no-mmap
+      "
+
+  llama_frigga:
+    image: docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv
+    container_name: llama_frigga
+    network_mode: host
+    devices: ["/dev/dri"]
+    security_opt: ["seccomp=unconfined"]
+    group_add: ["video"]
+    volumes:
+      - ${LLAMA_MODELS_DIR}:/models
+    command: >
+      bash -lc "
+      llama-server
+      --host 0.0.0.0 --port ${FRIGGA_PORT}
+      -m /models/${FRIGGA_GGUF}
+      -c ${FRIGGA_CTX}
+      -t ${FRIGGA_THREADS}
       --no-mmap
       "
