@@ -4,6 +4,15 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 COMPOSE="docker compose --project-directory $REPO_ROOT --env-file $REPO_ROOT/.env"
 
+# Hybrid mode (Phase 5)
+$COMPOSE -f compose/hybrid.yml \
+  --profile standard --profile heimdall --profile loki --profile frigga --profile odin --profile bifrost \
+  down || true
+# GPU-only mode (Phase 4)
+$COMPOSE -f compose/gpu-all.yml \
+  --profile standard --profile heimdall --profile loki --profile frigga --profile odin --profile bifrost \
+  down || true
+# Legacy modes
 $COMPOSE -f compose/vllm.yml down || true
 $COMPOSE -f compose/cpu.yml down || true
 $COMPOSE -f compose/fallback.vulkan-radv.orch.yml down || true

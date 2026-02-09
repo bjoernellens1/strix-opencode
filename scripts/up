@@ -16,6 +16,24 @@ case "$MODE" in
   gpu)
     $COMPOSE -f compose/vllm.yml up -d
     ;;
+  gpu-all)
+    # GPU-only mode (Phase 4) with vLLM BF16 for all agents.
+    # Starts Thor (always-on) + Valkyrie (standard profile) + Bifrost daemon.
+    $COMPOSE -f compose/gpu-all.yml --profile standard --profile bifrost up -d
+    ;;
+  gpu-all-no-bifrost)
+    # GPU-only mode without Bifrost. Thor + Valkyrie only.
+    $COMPOSE -f compose/gpu-all.yml --profile standard up -d
+    ;;
+  hybrid)
+    # Hybrid mode (Phase 5) — llama.cpp GGUF for Thor/Valkyrie/Odin, vLLM BF16 for utility.
+    # Starts Thor + Valkyrie + Bifrost. Other agents summoned on-demand.
+    $COMPOSE -f compose/hybrid.yml --profile standard --profile bifrost up -d
+    ;;
+  hybrid-no-bifrost)
+    # Hybrid mode without Bifrost. Thor + Valkyrie only.
+    $COMPOSE -f compose/hybrid.yml --profile standard up -d
+    ;;
   cpu)
     $COMPOSE -f compose/cpu.yml up -d
     ;;
@@ -29,7 +47,7 @@ case "$MODE" in
     $COMPOSE -f compose/vllm.yml -f compose/fallback.rocm-6.4.4-rocwmma.orch.yml up -d
     ;;
   *)
-    echo "Usage: $0 {gpu|cpu|full|hybrid-radv|hybrid-rocm}"
+    echo "Usage: $0 {gpu|gpu-all|gpu-all-no-bifrost|hybrid|hybrid-no-bifrost|cpu|full|hybrid-radv|hybrid-rocm}"
     exit 1
     ;;
 esac

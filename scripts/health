@@ -19,9 +19,20 @@ function check() {
   echo ""
 }
 
-check "${THOR_PORT:-8001}" "Thor ⚡ Primary Commander (vLLM)"
-check "${VALKYRIE_PORT:-8002}" "Valkyrie 🛡 Execution Specialist (vLLM)"
-check "${ODIN_PORT:-8011}" "Odin 👁️ Supreme Architect (llama.cpp)"
-check "${HEIMDALL_PORT:-8012}" "Heimdall 👁 Guardian (llama.cpp)"
-check "${LOKI_PORT:-8013}" "Loki 🧠 Adversarial Intelligence (llama.cpp)"
-check "${FRIGGA_PORT:-8014}" "Frigga 🌿 Knowledge Curator (llama.cpp)"
+# Phase 5 hybrid: llama.cpp for Thor/Valkyrie/Odin, vLLM BF16 for Heimdall/Loki/Frigga
+check "${THOR_PORT:-8001}" "Thor ⚡ Primary Commander (llama.cpp GPU, GGUF)"
+check "${VALKYRIE_PORT:-8002}" "Valkyrie 🛡 Execution Specialist (llama.cpp GPU, GGUF)"
+check "${ODIN_PORT:-8011}" "Odin 👁️ Supreme Architect (llama.cpp GPU, GGUF)"
+check "${HEIMDALL_PORT:-8012}" "Heimdall 👁 Guardian (vLLM GPU, BF16)"
+check "${LOKI_PORT:-8013}" "Loki 🧠 Adversarial Intelligence (vLLM GPU, BF16)"
+check "${FRIGGA_PORT:-8014}" "Frigga 🌿 Knowledge Curator (vLLM GPU, BF16)"
+
+# Bifrost scheduler (hybrid mode)
+BIFROST_PORT="${BIFROST_PORT:-8899}"
+echo "== Bifrost Scheduler :${BIFROST_PORT} =="
+if response=$(curl -sf --connect-timeout 3 --max-time 5 "http://127.0.0.1:${BIFROST_PORT}/v1/status" 2>&1); then
+  echo "$response" | python3 -m json.tool 2>/dev/null || echo "$response" | head -c 600
+else
+  echo "(not responding)"
+fi
+echo ""
