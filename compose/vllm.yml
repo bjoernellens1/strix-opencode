@@ -1,7 +1,7 @@
-# Tier 1 (GPU): Orchestrator — Qwen2.5-14B-Instruct BF16
-# Tier 2 (GPU): Coder — Qwen3-Coder-30B-A3B-Instruct BF16
+# Thor ⚡ (GPU): Primary Commander / Orchestrator — Qwen2.5-14B-Instruct BF16
+# Valkyrie 🛡 (GPU): Execution Specialist / Coder — Qwen3-Coder-30B-A3B-Instruct BF16
 #
-# Staggered startup: orchestrator loads first (smaller, faster), then coder.
+# Staggered startup: Thor loads first (smaller, faster), then Valkyrie.
 # On shared-memory GPUs (Strix Halo), concurrent vLLM startup causes the
 # memory profiler to see the other instance's allocation, leading to
 # negative KV cache budget and crash.
@@ -10,9 +10,9 @@
 # All BF16 — no quantization or FP8 KV works on gfx1151 (RDNA 3.5).
 
 services:
-  vllm_orchestrator:
+  vllm_thor:
     image: docker.io/kyuz0/vllm-therock-gfx1151:latest
-    container_name: vllm_orchestrator
+    container_name: vllm_thor
     network_mode: host
     devices: ["/dev/kfd", "/dev/dri"]
     security_opt: ["seccomp=unconfined"]
@@ -24,24 +24,24 @@ services:
       - ${HF_HOME}:${HF_HOME}
       - ${VLLM_CACHE}:${VLLM_CACHE}
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:${ORCH_PORT}/v1/models || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:${THOR_PORT}/v1/models || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 60
       start_period: 120s
     command: >
-      vllm serve ${ORCH_MODEL}
-      --host 0.0.0.0 --port ${ORCH_PORT}
+      vllm serve ${THOR_MODEL}
+      --host 0.0.0.0 --port ${THOR_PORT}
       --dtype auto
-      --gpu-memory-utilization ${ORCH_GPU_UTIL}
-      --max-model-len ${ORCH_MAX_LEN}
-      --kv-cache-dtype ${ORCH_KV_CACHE_DTYPE:-auto}
-      --max-num-seqs ${ORCH_MAX_NUM_SEQS:-256}
+      --gpu-memory-utilization ${THOR_GPU_UTIL}
+      --max-model-len ${THOR_MAX_LEN}
+      --kv-cache-dtype ${THOR_KV_CACHE_DTYPE:-auto}
+      --max-num-seqs ${THOR_MAX_NUM_SEQS:-256}
       --enable-prefix-caching
 
-  vllm_coder:
+  vllm_valkyrie:
     image: docker.io/kyuz0/vllm-therock-gfx1151:latest
-    container_name: vllm_coder
+    container_name: vllm_valkyrie
     network_mode: host
     devices: ["/dev/kfd", "/dev/dri"]
     security_opt: ["seccomp=unconfined"]
@@ -53,20 +53,20 @@ services:
       - ${HF_HOME}:${HF_HOME}
       - ${VLLM_CACHE}:${VLLM_CACHE}
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:${CODER_PORT}/v1/models || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:${VALKYRIE_PORT}/v1/models || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 60
       start_period: 120s
     depends_on:
-      vllm_orchestrator:
+      vllm_thor:
         condition: service_healthy
     command: >
-      vllm serve ${CODER_MODEL}
-      --host 0.0.0.0 --port ${CODER_PORT}
+      vllm serve ${VALKYRIE_MODEL}
+      --host 0.0.0.0 --port ${VALKYRIE_PORT}
       --dtype auto
-      --gpu-memory-utilization ${CODER_GPU_UTIL}
-      --max-model-len ${CODER_MAX_LEN}
-      --kv-cache-dtype ${CODER_KV_CACHE_DTYPE:-auto}
-      --max-num-seqs ${CODER_MAX_NUM_SEQS:-256}
+      --gpu-memory-utilization ${VALKYRIE_GPU_UTIL}
+      --max-model-len ${VALKYRIE_MAX_LEN}
+      --kv-cache-dtype ${VALKYRIE_KV_CACHE_DTYPE:-auto}
+      --max-num-seqs ${VALKYRIE_MAX_NUM_SEQS:-256}
       --enable-prefix-caching

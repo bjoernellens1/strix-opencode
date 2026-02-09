@@ -7,7 +7,7 @@ FILE="opencode/opencode.jsonc"
 
 case "$TARGET" in
   vllm)
-    sed -i 's/"primary":[^}]*}/"primary": { "mode": "primary", "model": "local_orch:orch" }/g' "$FILE"
+    sed -i 's/"primary":[^}]*}/"primary": { "mode": "primary", "model": "local_thor:thor" }/g' "$FILE"
     ;;
   cloud)
     sed -i 's/"primary":[^}]*}/"primary": { "mode": "primary", "model": "cloud_planner:planner" }/g' "$FILE"
