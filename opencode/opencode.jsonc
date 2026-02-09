@@ -6,26 +6,37 @@
   ],
 
   "provider": {
-    "local_orch_vllm": {
+    "local_orch": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Strix vLLM Orchestrator + Coder (shared)",
+      "name": "Strix vLLM Orchestrator (Tier 1 GPU)",
       "options": { "baseURL": "http://127.0.0.1:8001/v1", "apiKey": "EMPTY" },
       "models": {
-        "orch":  { "name": "Qwen/Qwen3-Coder-30B-A3B-Instruct", "tools": true },
+        "orch": { "name": "Qwen/Qwen2.5-14B-Instruct", "tools": true }
+      }
+    },
+    "local_coder": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Strix vLLM Coder (Tier 2 GPU)",
+      "options": { "baseURL": "http://127.0.0.1:8002/v1", "apiKey": "EMPTY" },
+      "models": {
         "coder": { "name": "Qwen/Qwen3-Coder-30B-A3B-Instruct", "tools": true }
       }
     },
-    "local_orch_llama": {
+    "local_reviewer": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Strix llama.cpp Orchestrator",
+      "name": "Strix llama.cpp Reviewer (Tier 3 CPU)",
       "options": { "baseURL": "http://127.0.0.1:8011/v1", "apiKey": "EMPTY" },
-      "models": { "orch": { "name": "orchestrator-gguf", "tools": true } }
+      "models": {
+        "reviewer": { "name": "llama-3.3-70b-instruct", "tools": true }
+      }
     },
-    "local_fast": {
+    "local_utility": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Strix vLLM Fast",
-      "options": { "baseURL": "http://127.0.0.1:8004/v1", "apiKey": "EMPTY" },
-      "models": { "fast": { "name": "Qwen/Qwen2.5-7B-Instruct", "tools": true } }
+      "name": "Strix llama.cpp Utility (Tier 0 CPU)",
+      "options": { "baseURL": "http://127.0.0.1:8012/v1", "apiKey": "EMPTY" },
+      "models": {
+        "utility": { "name": "qwen2.5-3b-instruct", "tools": true }
+      }
     },
     "cloud_planner": {
       "npm": "@ai-sdk/openai",
@@ -36,8 +47,9 @@
   },
 
   "agent": {
-    "primary": { "mode": "primary", "model": "local_orch_vllm:orch" },
-    "coder":   { "mode": "subagent", "model": "local_orch_vllm:coder" },
-    "utility": { "mode": "subagent", "model": "local_fast:fast" }
+    "primary":  { "mode": "primary",  "model": "local_orch:orch" },
+    "coder":    { "mode": "subagent", "model": "local_coder:coder" },
+    "reviewer": { "mode": "subagent", "model": "local_reviewer:reviewer" },
+    "utility":  { "mode": "subagent", "model": "local_utility:utility" }
   }
 }

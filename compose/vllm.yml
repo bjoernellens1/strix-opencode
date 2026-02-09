@@ -1,3 +1,14 @@
+# Tier 1 (GPU): Orchestrator — Qwen2.5-14B-Instruct BF16
+# Tier 2 (GPU): Coder — Qwen3-Coder-30B-A3B-Instruct BF16
+#
+# Staggered startup: orchestrator loads first (smaller, faster), then coder.
+# On shared-memory GPUs (Strix Halo), concurrent vLLM startup causes the
+# memory profiler to see the other instance's allocation, leading to
+# negative KV cache budget and crash.
+#
+# Total GPU utilization: 0.35 + 0.60 = 0.95 (~6.4 GB headroom for system)
+# All BF16 — no quantization or FP8 KV works on gfx1151 (RDNA 3.5).
+
 services:
   vllm_orchestrator:
     image: docker.io/kyuz0/vllm-therock-gfx1151:latest
@@ -28,9 +39,9 @@ services:
       --max-num-seqs ${ORCH_MAX_NUM_SEQS:-256}
       --enable-prefix-caching
 
-  vllm_fast:
+  vllm_coder:
     image: docker.io/kyuz0/vllm-therock-gfx1151:latest
-    container_name: vllm_fast
+    container_name: vllm_coder
     network_mode: host
     devices: ["/dev/kfd", "/dev/dri"]
     security_opt: ["seccomp=unconfined"]
@@ -41,19 +52,21 @@ services:
     volumes:
       - ${HF_HOME}:${HF_HOME}
       - ${VLLM_CACHE}:${VLLM_CACHE}
-    # Wait for orchestrator to finish loading before starting.
-    # On shared-memory GPUs (Strix Halo), concurrent vLLM startup causes
-    # memory profiling to see the other instance's allocation, leading to
-    # negative KV cache budget and crash.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:${CODER_PORT}/v1/models || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 120s
     depends_on:
       vllm_orchestrator:
         condition: service_healthy
     command: >
-      vllm serve ${FAST_MODEL}
-      --host 0.0.0.0 --port ${FAST_PORT}
+      vllm serve ${CODER_MODEL}
+      --host 0.0.0.0 --port ${CODER_PORT}
       --dtype auto
-      --gpu-memory-utilization ${FAST_GPU_UTIL}
-      --max-model-len ${FAST_MAX_LEN}
-      --kv-cache-dtype ${FAST_KV_CACHE_DTYPE:-auto}
-      --max-num-seqs ${FAST_MAX_NUM_SEQS:-256}
+      --gpu-memory-utilization ${CODER_GPU_UTIL}
+      --max-model-len ${CODER_MAX_LEN}
+      --kv-cache-dtype ${CODER_KV_CACHE_DTYPE:-auto}
+      --max-num-seqs ${CODER_MAX_NUM_SEQS:-256}
       --enable-prefix-caching

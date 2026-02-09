@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
-docker compose -f compose/vllm.yml --env-file .env down || true
-docker compose -f compose/fallback.vulkan-radv.orch.yml --env-file .env down || true
-docker compose -f compose/fallback.rocm-6.4.4-rocwmma.orch.yml --env-file .env down || true
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+COMPOSE="docker compose --project-directory $REPO_ROOT --env-file $REPO_ROOT/.env"
+
+$COMPOSE -f compose/vllm.yml down || true
+$COMPOSE -f compose/cpu.yml down || true
+$COMPOSE -f compose/fallback.vulkan-radv.orch.yml down || true
+$COMPOSE -f compose/fallback.rocm-6.4.4-rocwmma.orch.yml down || true

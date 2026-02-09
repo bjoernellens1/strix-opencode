@@ -1,0 +1,47 @@
+# Tier 3 (CPU): Escalation Reviewer — Llama-3.3-70B-Instruct Q4_K_M GGUF
+# Tier 0 (CPU): Utility Agent — Qwen2.5-3B-Instruct Q4_K_M GGUF
+#
+# Both run on llama.cpp (CPU-only, no GPU). They share system RAM with the
+# GPU tiers but only load on demand — not expected to run concurrently with
+# both vLLM services at full KV pressure.
+#
+# GGUF files must be pre-downloaded into ./models/ before starting.
+
+services:
+  llama_reviewer:
+    image: docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv
+    container_name: llama_reviewer
+    network_mode: host
+    devices: ["/dev/dri"]
+    security_opt: ["seccomp=unconfined"]
+    group_add: ["video"]
+    volumes:
+      - ${LLAMA_MODELS_DIR}:/models
+    command: >
+      bash -lc "
+      llama-server
+      --host 0.0.0.0 --port ${REVIEWER_PORT}
+      -m /models/${REVIEWER_GGUF}
+      -c ${REVIEWER_CTX}
+      -t ${REVIEWER_THREADS}
+      --no-mmap
+      "
+
+  llama_utility:
+    image: docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv
+    container_name: llama_utility
+    network_mode: host
+    devices: ["/dev/dri"]
+    security_opt: ["seccomp=unconfined"]
+    group_add: ["video"]
+    volumes:
+      - ${LLAMA_MODELS_DIR}:/models
+    command: >
+      bash -lc "
+      llama-server
+      --host 0.0.0.0 --port ${UTILITY_PORT}
+      -m /models/${UTILITY_GGUF}
+      -c ${UTILITY_CTX}
+      -t ${UTILITY_THREADS}
+      --no-mmap
+      "

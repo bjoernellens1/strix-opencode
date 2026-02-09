@@ -1,6 +1,6 @@
 # strix-opencode
 
-A reproducible **Strix Halo** dev-stack repository for **Ubuntu + distrobox** that runs local LLM inference servers and integrates with [OpenCode](https://opencode.ai) via a custom [oh-my-opencode](https://github.com/code-yeongyu/oh-my-opencode) plugin.
+A reproducible **Strix Halo** dev-stack for **Ubuntu + distrobox** that runs local LLM inference servers and integrates with [OpenCode](https://opencode.ai) via a custom [oh-my-opencode](https://github.com/code-yeongyu/oh-my-opencode) plugin.
 
 Optimized for a **single-user workflow** — interactive latency and stability over multi-user throughput.
 
@@ -12,9 +12,8 @@ Optimized for a **single-user workflow** — interactive latency and stability o
 - [Architecture](#architecture)
 - [Prerequisites](#prerequisites)
 - [Repository Structure](#repository-structure)
-- [Quick Start (vLLM Only)](#quick-start-vllm-only)
-- [Hybrid Orchestrator Fallback](#hybrid-orchestrator-fallback)
-- [Switch to Cloud Planner (Option C)](#switch-to-cloud-planner-option-c)
+- [Quick Start](#quick-start)
+- [Startup Modes](#startup-modes)
 - [Model Roles & Endpoints](#model-roles--endpoints)
 - [Model Download Notes](#model-download-notes)
 - [Environment Variables](#environment-variables)
@@ -29,42 +28,43 @@ Optimized for a **single-user workflow** — interactive latency and stability o
 
 ## Overview
 
-This project provides three deployment modes for running local AI inference alongside OpenCode:
+This project runs a **4-tier local AI inference stack** on a single AMD Strix Halo system (128 GB shared UMA memory):
 
-| Mode | Orchestrator + Coder | Fast Utility |
-|------|---------------------|-------------|
-| **Default (vLLM)** | vLLM (shared instance) | vLLM |
-| **Hybrid RADV** | llama.cpp (Vulkan RADV) + vLLM | vLLM |
-| **Hybrid ROCm** | llama.cpp (ROCm 6.4.4 rocWMMA) + vLLM | vLLM |
+| Tier | Role | Backend | Model | Context |
+|------|------|---------|-------|---------|
+| **1 Orchestrator** | Planning, coordination, delegation | vLLM (GPU, BF16) | Qwen2.5-14B-Instruct | 64K |
+| **2 Coder** | Code generation, tool use | vLLM (GPU, BF16) | Qwen3-Coder-30B-A3B-Instruct | 48K |
+| **3 Reviewer** | Escalation, deep review, architecture | llama.cpp (CPU) | Llama-3.3-70B Q4_K_M | 32K |
+| **0 Utility** | Fast utility tasks, summaries | llama.cpp (CPU) | Qwen2.5-3B Q4_K_M | 8K |
 
-The orchestrator and coder roles share a single vLLM instance (same model, same port) to conserve GPU memory on the Strix Halo's 128 GB shared VRAM.
-
-A fourth option (**Cloud Planner**) lets you route the orchestrator role to a cloud provider (e.g., OpenAI) while keeping coder and fast utility local.
-
-All modes use containers managed by Docker Compose and are built around AMD Strix Halo GPU hardware.
+**Key design decisions:**
+- **All BF16 on GPU** — no quantization works on gfx1151 (FP8, AWQ, GPTQ all fail; see [DECISIONS.md](DECISIONS.md))
+- **CPU tiers via llama.cpp** — 70B reviewer runs INT4 GGUF on CPU without competing for GPU memory
+- **Staggered GPU startup** — prevents shared-memory race condition during vLLM memory profiling
+- **0.95 total GPU utilization** — tight for single-user; swap file + earlyoom recommended
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  OpenCode  (TUI / agent runtime)                                │
-│  config: opencode/opencode.jsonc                                │
-│  plugin: opencode/oh-my-opencode/                               │
-├────────────┬─────────────────┬──────────────────────────────────┤
-│            │                 │                                    │
-│  Primary   │  Coder          │  Fast Utility                     │
-│  (orch)    │  (subagent)     │  (subagent)                       │
-│            │                 │                                    │
-│  ┌─────────┴─────────────────┴──┐  ┌────────────────────────┐   │
-│  │      vLLM :8001 (shared)     │  │ vLLM :8004             │   │
-│  │    OR                        │  └────────────────────────┘   │
-│  │      llama.cpp :8011         │                                │
-│  │    OR                        │                                │
-│  │      cloud API               │                                │
-│  └──────────────────────────────┘                                │
-└─────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│  OpenCode  (TUI / agent runtime)                                     │
+│  config: opencode/opencode.jsonc                                     │
+│  plugin: opencode/oh-my-opencode/                                    │
+├─────────────┬──────────────┬──────────────────┬─────────────────────┤
+│             │              │                  │                       │
+│  Primary    │  Coder       │  Reviewer        │  Utility             │
+│  (orch)     │  (subagent)  │  (subagent)      │  (subagent)          │
+│             │              │                  │                       │
+│ ┌───────────┴┐ ┌──────────┴──┐ ┌─────────────┴──┐ ┌──────────────┐ │
+│ │ vLLM :8001 │ │ vLLM :8002  │ │ llama.cpp :8011│ │llama.cpp:8012│ │
+│ │ 14B GPU    │ │ 30B GPU     │ │ 70B CPU        │ │ 3B CPU       │ │
+│ │ BF16       │ │ BF16        │ │ Q4_K_M GGUF    │ │ Q4_K_M GGUF  │ │
+│ └────────────┘ └─────────────┘ └────────────────┘ └──────────────┘ │
+└──────────────────────────────────────────────────────────────────────┘
+        GPU (0.35)      GPU (0.60)       CPU (16 threads)  CPU (8 threads)
+              └──── total: 0.95 ────┘
 ```
 
 ---
@@ -74,9 +74,29 @@ All modes use containers managed by Docker Compose and are built around AMD Stri
 - **Ubuntu** (22.04+ recommended) with AMD Strix Halo GPU
 - **Docker** (with Compose v2) — `docker compose` must work
 - **GPU access**: `/dev/kfd` and `/dev/dri` exposed to containers
-- **Distrobox** (optional but recommended; see [Distrobox Notes](#distrobox-notes-ubuntu))
+- **Distrobox** (optional; see [Distrobox Notes](#distrobox-notes-ubuntu))
 - **curl** (for the health script)
-- **HuggingFace account** with token (for gated models, set `HF_TOKEN` in your environment or `~/.cache/huggingface/token`)
+- **~128 GB swap file** recommended (shared memory system)
+- **earlyoom** recommended (`sudo apt install earlyoom`)
+- **HuggingFace token** for gated models: set `HF_TOKEN` in `.env`
+
+### System Stability (Recommended)
+
+With 95% GPU utilization on shared UMA memory, system stability measures are important:
+
+```bash
+# 1. Enlarge swap to 128 GB
+sudo swapoff /swap.img && sudo rm /swap.img
+sudo fallocate -l 128G /swap.img && sudo chmod 600 /swap.img
+sudo mkswap /swap.img && sudo swapon /swap.img
+
+# 2. Install earlyoom (prevents hard freezes)
+sudo apt install earlyoom && sudo systemctl enable --now earlyoom
+
+# 3. Increase swappiness (push inactive pages to swap aggressively)
+sudo sysctl vm.swappiness=80
+echo 'vm.swappiness=80' | sudo tee /etc/sysctl.d/99-swappiness.conf
+```
 
 ---
 
@@ -85,240 +105,191 @@ All modes use containers managed by Docker Compose and are built around AMD Stri
 ```
 strix-opencode/
 ├── README.md                                  # This file
-├── .gitignore                                 # Ignores models/, .env, caches
+├── DECISIONS.md                               # Architecture decisions, research log, quantization results
 ├── .env.example                               # Template for environment variables
-├── DECISIONS.md                               # Architecture decisions and research log
+├── .gitignore                                 # Ignores models/, .env, secrets, caches
 ├── strix-opencode.md                          # Original build instructions
 ├── compose/
-│   ├── vllm.yml                               # vLLM services (orchestrator+coder shared + fast)
-│   ├── fallback.vulkan-radv.orch.yml          # llama.cpp orchestrator (Vulkan RADV backend)
-│   └── fallback.rocm-6.4.4-rocwmma.orch.yml  # llama.cpp orchestrator (ROCm rocWMMA backend)
+│   ├── vllm.yml                               # GPU tiers: orchestrator (14B) + coder (30B)
+│   ├── cpu.yml                                # CPU tiers: reviewer (70B) + utility (3B)
+│   ├── fallback.vulkan-radv.orch.yml          # Legacy: llama.cpp orchestrator (Vulkan RADV)
+│   └── fallback.rocm-6.4.4-rocwmma.orch.yml  # Legacy: llama.cpp orchestrator (ROCm rocWMMA)
 ├── opencode/
-│   ├── opencode.jsonc                         # OpenCode agent/provider configuration
-│   └── oh-my-opencode/                        # Plugin (git submodule or vendored fork)
-└── scripts/
-    ├── up                                     # Start services (vllm | hybrid-radv | hybrid-rocm)
-    ├── down                                   # Stop all services
-    ├── health                                 # Check endpoint health
-    └── switch-orch                            # Switch orchestrator (vllm | llama | cloud)
-├── .opencode/
-│   └── oh-my-opencode.json                   # Template: agent maxTokens for local models
+│   ├── opencode.jsonc                         # OpenCode provider/agent configuration
+│   └── oh-my-opencode/                        # Plugin (git submodule)
+├── scripts/
+│   ├── up                                     # Start services (gpu | cpu | full | hybrid-*)
+│   ├── down                                   # Stop all services
+│   ├── health                                 # Check all 4 endpoints
+│   └── switch-orch                            # Switch orchestrator (vllm | cloud)
+├── models/                                    # GGUF files for llama.cpp (git-ignored)
+└── .opencode/
+    └── oh-my-opencode.json                    # Template: agent maxTokens for local models
 ```
 
 ---
 
-## Quick Start (vLLM Only)
-
-The default mode runs **all three roles on vLLM** — simplest setup, single container image.
+## Quick Start
 
 ```bash
 # 1. Clone and enter
-git clone https://github.com/bjoernellens1/strix-opencode.git
+git clone --recurse-submodules https://github.com/bjoernellens1/strix-opencode.git
 cd strix-opencode
 
 # 2. Set up environment
 cp .env.example .env
-# Edit .env if you want to change models, ports, or GPU utilization
+# Edit .env — set HF_TOKEN for gated model downloads
 
-# 3. Start all vLLM services
-./scripts/up vllm
+# 3. Download GGUF models for CPU tiers (reviewer + utility)
+mkdir -p models
+# Llama-3.3-70B for reviewer:
+huggingface-cli download bartowski/Llama-3.3-70B-Instruct-GGUF \
+  llama-3.3-70b-instruct.Q4_K_M.gguf --local-dir models
+# Qwen2.5-3B for utility:
+huggingface-cli download Qwen/Qwen2.5-3B-Instruct-GGUF \
+  qwen2.5-3b-instruct.Q4_K_M.gguf --local-dir models
 
-# 4. Verify health
+# 4a. Start GPU tiers only (most common)
+./scripts/up gpu
+
+# 4b. Or start all 4 tiers
+./scripts/up full
+
+# 5. Verify health
 ./scripts/health
 
-# 5. Run OpenCode pointing to the config
-# (from within a project directory you want to work on)
+# 6. Run OpenCode
 opencode --config /path/to/strix-opencode/opencode/opencode.jsonc
 ```
 
-The first start will be slow as vLLM downloads model weights from HuggingFace into `$HF_HOME`. Subsequent starts use the cache.
+First start is slow — vLLM downloads model weights (~85 GB total for both GPU models). Subsequent starts use the HuggingFace cache.
+
+---
+
+## Startup Modes
+
+| Mode | Command | What starts |
+|------|---------|-------------|
+| **gpu** (default) | `./scripts/up` or `./scripts/up gpu` | vLLM orchestrator (:8001) + vLLM coder (:8002) |
+| **cpu** | `./scripts/up cpu` | llama.cpp reviewer (:8011) + llama.cpp utility (:8012) |
+| **full** | `./scripts/up full` | All 4 tiers |
+| **hybrid-radv** | `./scripts/up hybrid-radv` | vLLM + llama.cpp orch (Vulkan RADV, legacy) |
+| **hybrid-rocm** | `./scripts/up hybrid-rocm` | vLLM + llama.cpp orch (ROCm rocWMMA, legacy) |
 
 ### Stopping
 
 ```bash
-./scripts/down
-```
-
-This gracefully stops all containers across all compose files.
-
----
-
-## Hybrid Orchestrator Fallback
-
-If you want the orchestrator to run on **llama.cpp** (for GGUF models, potentially lower VRAM usage, or different performance characteristics), use a hybrid mode while keeping coder and fast utility on vLLM.
-
-### Option A: Vulkan RADV Backend
-
-```bash
-# 1. Place your GGUF model in ./models/
-mkdir -p models
-# e.g., download a GGUF model into ./models/
-
-# 2. Start hybrid stack
-./scripts/up hybrid-radv
-
-# 3. Switch OpenCode to use the llama.cpp orchestrator
-./scripts/switch-orch llama
-
-# 4. Verify
-./scripts/health
-```
-
-### Option B: ROCm 6.4.4 rocWMMA Backend
-
-The ROCm backend may offer better performance through hardware-specific matrix multiply acceleration:
-
-```bash
-# 1. Place your GGUF model in ./models/
-mkdir -p models
-
-# 2. Start hybrid stack
-./scripts/up hybrid-rocm
-
-# 3. Switch OpenCode to use the llama.cpp orchestrator
-./scripts/switch-orch llama
-
-# 4. Verify
-./scripts/health
-```
-
-### Switching Back to vLLM Orchestrator
-
-```bash
-./scripts/switch-orch vllm
-```
-
----
-
-## Switch to Cloud Planner (Option C)
-
-Use a cloud API (e.g., OpenAI) for the orchestrator/planner role while keeping the coder and fast utility running locally. This is useful when you want the strongest available planner without local compute constraints.
-
-```bash
-# 1. Set your cloud credentials
-export OPENAI_API_KEY=sk-...
-export CLOUD_PLANNER_MODEL=gpt-5
-
-# 2. Switch OpenCode to use the cloud planner
-./scripts/switch-orch cloud
-
-# 3. Ensure local coder + fast are running
-./scripts/up vllm
-
-# 4. Run OpenCode — orchestrator goes to cloud, coder/fast stay local
-opencode --config /path/to/strix-opencode/opencode/opencode.jsonc
-```
-
-### Switching Back to Local
-
-```bash
-./scripts/switch-orch vllm
+./scripts/down    # Stops all containers across all compose files
 ```
 
 ---
 
 ## Model Roles & Endpoints
 
-### Default (vLLM for All)
+| Tier | Role | Port | Default Model | Backend |
+|------|------|------|---------------|---------|
+| 1 | Orchestrator | `http://127.0.0.1:8001/v1` | Qwen/Qwen2.5-14B-Instruct | vLLM (GPU) |
+| 2 | Coder | `http://127.0.0.1:8002/v1` | Qwen/Qwen3-Coder-30B-A3B-Instruct | vLLM (GPU) |
+| 3 | Reviewer | `http://127.0.0.1:8011/v1` | Llama-3.3-70B Q4_K_M GGUF | llama.cpp (CPU) |
+| 0 | Utility | `http://127.0.0.1:8012/v1` | Qwen2.5-3B Q4_K_M GGUF | llama.cpp (CPU) |
 
-| Role | Endpoint | Default Model |
-|------|----------|---------------|
-| Orchestrator + Coder (shared) | `http://127.0.0.1:8001/v1` | `Qwen/Qwen3-Coder-30B-A3B-Instruct` |
-| Fast Utility (subagent) | `http://127.0.0.1:8004/v1` | `Qwen/Qwen2.5-7B-Instruct` |
+All endpoints serve an OpenAI-compatible `/v1` API.
 
-### Hybrid (llama.cpp Orchestrator)
+### Cloud Planner (Optional)
 
-| Role | Endpoint | Default Model |
-|------|----------|---------------|
-| Orchestrator + Coder via llama.cpp | `http://127.0.0.1:8011/v1` | GGUF file from `./models/` |
-| Fast Utility (vLLM) | `http://127.0.0.1:8004/v1` | `Qwen/Qwen2.5-7B-Instruct` |
+You can route the orchestrator to a cloud provider while keeping local coder/reviewer/utility:
 
-### Model Choices (env-configurable)
+```bash
+# Set cloud credentials in .env or environment
+export OPENAI_API_KEY=sk-...
+export CLOUD_PLANNER_MODEL=gpt-5
 
-All model names are set in `.env` and can be swapped:
-
-- **Orchestrator + Coder**: `Qwen/Qwen3-Coder-30B-A3B-Instruct` (shared instance) or `meta-llama/Llama-3.3-70B-Instruct` (via GGUF fallback)
-- **Fast**: `Qwen/Qwen2.5-7B-Instruct`
+./scripts/switch-orch cloud
+# To switch back:
+./scripts/switch-orch vllm
+```
 
 ---
 
 ## Model Download Notes
 
-### vLLM Models
+### vLLM Models (GPU Tiers)
 
 vLLM pulls HuggingFace models **automatically** on first run. Models are cached in `$HF_HOME` (default: `~/.cache/huggingface`).
 
-- If a model is gated (requires acceptance of license terms), make sure you have:
-  1. Accepted the license on the HuggingFace model page.
-  2. Set your HuggingFace token: `export HF_TOKEN=hf_...` or saved it in `~/.cache/huggingface/token`.
+- Set `HF_TOKEN` in `.env` for gated models
+- First download: ~28 GB (14B) + ~57 GB (30B) = **~85 GB total**
+- Subsequent starts use the cache
 
-- First download can be **very slow** for large models (70B+ parameters). Subsequent runs use the cache.
+### llama.cpp GGUF Models (CPU Tiers)
 
-### llama.cpp GGUF Models
-
-llama.cpp requires **pre-downloaded GGUF files** placed into the `./models/` directory:
+GGUF files must be **pre-downloaded** into `./models/`:
 
 ```bash
 mkdir -p models
-cd models
 
-# Example: download a quantized model from HuggingFace
-# (use huggingface-cli or wget)
-huggingface-cli download TheBloke/Llama-3.3-70B-Instruct-GGUF \
-  llama-3.3-70b-instruct.Q4_K_M.gguf \
-  --local-dir .
+# Tier 3 Reviewer: Llama-3.3-70B (~40 GB)
+huggingface-cli download bartowski/Llama-3.3-70B-Instruct-GGUF \
+  llama-3.3-70b-instruct.Q4_K_M.gguf --local-dir models
+
+# Tier 0 Utility: Qwen2.5-3B (~2 GB)
+huggingface-cli download Qwen/Qwen2.5-3B-Instruct-GGUF \
+  qwen2.5-3b-instruct.Q4_K_M.gguf --local-dir models
 ```
 
-Update `ORCH_GGUF` in `.env` to match your downloaded filename:
-
-```bash
-ORCH_GGUF=llama-3.3-70b-instruct.Q4_K_M.gguf
-```
+Update `REVIEWER_GGUF` and `UTILITY_GGUF` in `.env` if your filenames differ.
 
 ---
 
 ## Environment Variables
 
-All configurable values are in `.env` (copied from `.env.example`). Key variables:
+All configurable values are in `.env` (copied from `.env.example`).
 
 ### Paths
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `HF_HOME` | `${HOME}/.cache/huggingface` | HuggingFace model cache directory |
+| `HF_TOKEN` | *(empty)* | HuggingFace token for gated models |
+| `HF_HOME` | `${HOME}/.cache/huggingface` | HuggingFace model cache |
 | `VLLM_CACHE` | `${HOME}/.cache/vllm` | vLLM runtime cache |
-| `LLAMA_MODELS_DIR` | `./models` | Directory containing GGUF files for llama.cpp |
+| `LLAMA_MODELS_DIR` | `./models` | Directory containing GGUF files |
 
 ### Ports
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ORCH_PORT` | `8001` | vLLM orchestrator + coder port |
-| `FAST_PORT` | `8004` | vLLM fast utility port |
-| `LLAMA_ORCH_PORT` | `8011` | llama.cpp orchestrator port |
+| `ORCH_PORT` | `8001` | Tier 1: vLLM orchestrator |
+| `CODER_PORT` | `8002` | Tier 2: vLLM coder |
+| `REVIEWER_PORT` | `8011` | Tier 3: llama.cpp reviewer |
+| `UTILITY_PORT` | `8012` | Tier 0: llama.cpp utility |
 
-### Models
+### GPU Tiers (vLLM)
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `ORCH_MODEL` | `Qwen/Qwen3-Coder-30B-A3B-Instruct` | HuggingFace model for vLLM orchestrator + coder (shared) |
-| `FAST_MODEL` | `Qwen/Qwen2.5-7B-Instruct` | HuggingFace model for vLLM fast |
-| `ORCH_GGUF` | `Qwen3-30B-A3B-Instruct.Q4_K_M.gguf` | GGUF filename for llama.cpp orchestrator |
-
-### vLLM Tuning
-
-> **Important:** When running both vLLM services on the same GPU, their `*_GPU_UTIL` fractions must sum to **≤ 1.0** or you will hit OOM. The defaults below leave 15% (~19 GB) headroom for the system.
+> **Important:** `ORCH_GPU_UTIL + CODER_GPU_UTIL` must be **<= 1.0**. Both share the same physical GPU memory on Strix Halo.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ORCH_GPU_UTIL` | `0.65` | GPU memory utilization for orchestrator + coder |
-| `FAST_GPU_UTIL` | `0.20` | GPU memory utilization for fast |
-| `ORCH_MAX_LEN` | `32768` | Max sequence length for orchestrator (32K) |
-| `FAST_MAX_LEN` | `8192` | Max sequence length for fast (8K) |
-| `ORCH_KV_CACHE_DTYPE` | `fp8` | KV cache precision for orchestrator (fp8 halves KV memory) |
-| `FAST_KV_CACHE_DTYPE` | `fp8` | KV cache precision for fast |
-| `ORCH_MAX_NUM_SEQS` | `4` | Max concurrent sequences for orchestrator |
-| `FAST_MAX_NUM_SEQS` | `4` | Max concurrent sequences for fast |
+| `ORCH_MODEL` | `Qwen/Qwen2.5-14B-Instruct` | Orchestrator model (14B dense) |
+| `CODER_MODEL` | `Qwen/Qwen3-Coder-30B-A3B-Instruct` | Coder model (30B MoE) |
+| `ORCH_GPU_UTIL` | `0.35` | GPU memory fraction for orchestrator (~44.8 GB) |
+| `CODER_GPU_UTIL` | `0.60` | GPU memory fraction for coder (~76.8 GB) |
+| `ORCH_MAX_LEN` | `65536` | Orchestrator context window (64K tokens) |
+| `CODER_MAX_LEN` | `49152` | Coder context window (48K tokens) |
+| `ORCH_KV_CACHE_DTYPE` | `auto` | KV cache dtype (**must be `auto`** on gfx1151) |
+| `CODER_KV_CACHE_DTYPE` | `auto` | KV cache dtype (**must be `auto`** on gfx1151) |
+| `ORCH_MAX_NUM_SEQS` | `4` | Max concurrent sequences (single-user) |
+| `CODER_MAX_NUM_SEQS` | `4` | Max concurrent sequences (single-user) |
+
+### CPU Tiers (llama.cpp)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `REVIEWER_GGUF` | `llama-3.3-70b-instruct.Q4_K_M.gguf` | GGUF filename for reviewer |
+| `REVIEWER_CTX` | `32768` | Reviewer context window (32K) |
+| `REVIEWER_THREADS` | `16` | CPU threads for reviewer |
+| `UTILITY_GGUF` | `qwen2.5-3b-instruct.Q4_K_M.gguf` | GGUF filename for utility |
+| `UTILITY_CTX` | `8192` | Utility context window (8K) |
+| `UTILITY_THREADS` | `8` | CPU threads for utility |
 
 ### Cloud Planner (Optional)
 
@@ -331,17 +302,19 @@ All configurable values are in `.env` (copied from `.env.example`). Key variable
 
 ## Scripts Reference
 
-All scripts live in `scripts/` and are executable.
+All scripts live in `scripts/` and are executable (`chmod +x`).
 
 ### `scripts/up`
 
-Start the inference stack.
+Start the inference stack:
 
 ```bash
-./scripts/up              # Default: vLLM only
-./scripts/up vllm         # Explicit: vLLM only
-./scripts/up hybrid-radv  # vLLM + llama.cpp orchestrator (Vulkan RADV)
-./scripts/up hybrid-rocm  # vLLM + llama.cpp orchestrator (ROCm rocWMMA)
+./scripts/up              # Default: GPU tiers only
+./scripts/up gpu          # Explicit: GPU tiers only
+./scripts/up cpu          # CPU tiers only
+./scripts/up full         # All 4 tiers
+./scripts/up hybrid-radv  # Legacy: vLLM + Vulkan RADV llama.cpp
+./scripts/up hybrid-rocm  # Legacy: vLLM + ROCm llama.cpp
 ```
 
 On first run, `.env.example` is automatically copied to `.env` if `.env` does not exist.
@@ -356,84 +329,100 @@ Stop all services across all compose files:
 
 ### `scripts/health`
 
-Check whether each endpoint is responding:
+Check all 4 endpoints (queries `/v1/models` on each port):
 
 ```bash
 ./scripts/health
 ```
 
-Outputs the `/v1/models` response from each port. If a service isn't running, you'll see a connection error for that port (which is expected for modes that don't start all services).
+Outputs the model list from each service. Services that aren't running show "(not responding)" — this is expected when not using `full` mode.
 
 ### `scripts/switch-orch`
 
-Switch which backend the OpenCode primary agent uses:
+Switch the OpenCode primary agent backend:
 
 ```bash
 ./scripts/switch-orch vllm   # Use local vLLM orchestrator (:8001)
-./scripts/switch-orch llama  # Use local llama.cpp orchestrator (:8011)
 ./scripts/switch-orch cloud  # Use cloud planner (requires OPENAI_API_KEY)
 ```
 
-This edits `opencode/opencode.jsonc` in-place. The coder and fast utility agents are unaffected.
+This edits `opencode/opencode.jsonc` in-place. Coder, reviewer, and utility agents are unaffected.
 
 ---
 
 ## OpenCode Configuration
 
-The file `opencode/opencode.jsonc` defines:
+The file `opencode/opencode.jsonc` defines providers and agent-to-provider mappings:
 
-- **Providers**: connection details for each inference backend
-- **Agents**: role assignments mapping agents to providers
-- **Plugins**: reference to the oh-my-opencode plugin
-
-### Providers Defined
+### Providers
 
 | Provider ID | Backend | Endpoint |
 |------------|---------|----------|
-| `local_orch_vllm` | vLLM (orch + coder shared) | `http://127.0.0.1:8001/v1` |
-| `local_orch_llama` | llama.cpp | `http://127.0.0.1:8011/v1` |
-| `local_fast` | vLLM | `http://127.0.0.1:8004/v1` |
+| `local_orch` | vLLM GPU | `http://127.0.0.1:8001/v1` |
+| `local_coder` | vLLM GPU | `http://127.0.0.1:8002/v1` |
+| `local_reviewer` | llama.cpp CPU | `http://127.0.0.1:8011/v1` |
+| `local_utility` | llama.cpp CPU | `http://127.0.0.1:8012/v1` |
 | `cloud_planner` | OpenAI API | cloud |
 
-### Agent Roles
+### Agents
 
 | Agent | Role | Default Provider |
 |-------|------|-----------------|
-| `primary` | Orchestrator/Planner | `local_orch_vllm:orch` |
-| `coder` | Code generation subagent | `local_orch_vllm:coder` |
-| `utility` | Fast utility subagent | `local_fast:fast` |
+| `primary` | Orchestrator/Planner | `local_orch:orch` |
+| `coder` | Code generation | `local_coder:coder` |
+| `reviewer` | Escalation review | `local_reviewer:reviewer` |
+| `utility` | Quick utility tasks | `local_utility:utility` |
+
+### Agent Token Limits
+
+The template `.opencode/oh-my-opencode.json` caps output tokens per agent to fit local model context windows:
+
+| Agent | maxTokens | Tier | Rationale |
+|-------|-----------|------|-----------|
+| sisyphus | 32,768 | Orch (64K) | 32K output + ~32K input |
+| hephaestus, sisyphus-junior | 24,576 | Coder (48K) | 24K output + ~24K input |
+| oracle, prometheus, metis, momus | 16,384 | Reviewer (32K) | 16K output + ~16K input |
+| librarian, explore, atlas | 4,096 | Utility (8K) | 4K output + ~4K input |
+
+Copy this file to `.opencode/` in any target project. Remove/raise limits when using cloud models.
+
+---
+
+## Memory Budget
+
+### GPU Allocation (128 GB shared UMA)
+
+| Component | Fraction | Memory | Weights (BF16) | KV Budget |
+|-----------|----------|--------|----------------|-----------|
+| Coder (30B MoE) | 0.60 | ~76.8 GB | ~57 GB | ~19.8 GB |
+| Orchestrator (14B) | 0.35 | ~44.8 GB | ~28 GB | ~16.8 GB |
+| System headroom | 0.05 | ~6.4 GB | — | — |
+
+### KV Cache Fit
+
+| Tier | Model | Context | KV Size | Budget | Slack |
+|------|-------|---------|---------|--------|-------|
+| 1 Orch | Qwen2.5-14B | 64K | ~10.0 GB | 16.8 GB | 6.8 GB |
+| 2 Coder | Qwen3-Coder-30B | 48K | ~4.5 GB | 19.8 GB | 15.3 GB |
+
+### CPU Tiers (system RAM)
+
+| Tier | Model | GGUF Size | RAM at Load |
+|------|-------|-----------|-------------|
+| 3 Reviewer | Llama-3.3-70B Q4_K_M | ~40 GB | ~42 GB |
+| 0 Utility | Qwen2.5-3B Q4_K_M | ~2 GB | ~3 GB |
+
+CPU tiers share the same physical RAM. Not expected to run concurrently with both GPU tiers at full KV pressure.
+
+> For detailed memory math, KV cache calculations, and vLLM allocation internals, see [DECISIONS.md](DECISIONS.md).
 
 ---
 
 ## oh-my-opencode Plugin
 
-This repository is designed to work with a custom fork of [oh-my-opencode](https://github.com/code-yeongyu/oh-my-opencode), placed at `opencode/oh-my-opencode/`.
-
-### Replacing with Your Own Fork as Git Submodule
-
-If a submodule already exists (e.g., the upstream), you must remove it from Git's index first — `rm -rf` alone is not enough:
-
-```bash
-# 1. Remove the existing submodule from Git tracking
-git rm opencode/oh-my-opencode
-
-# 2. Clean up any cached submodule metadata
-rm -rf .git/modules/opencode/oh-my-opencode
-
-# 3. Add your fork as the new submodule
-git submodule add https://github.com/bjoernellens1/oh-my-opencode opencode/oh-my-opencode
-
-# 4. Commit
-git add .gitmodules opencode/oh-my-opencode
-git commit -m "Replace oh-my-opencode submodule with fork"
-```
-
-> **Note:** `git submodule add` will fail if the path is still tracked by Git.
-> You must use `git rm` (not just `rm -rf`) to properly de-register it first.
+This repository uses a custom fork of [oh-my-opencode](https://github.com/code-yeongyu/oh-my-opencode) as a git submodule at `opencode/oh-my-opencode/`.
 
 ### Cloning with Submodules
-
-After the submodule is added, anyone cloning the repo should use:
 
 ```bash
 git clone --recurse-submodules https://github.com/bjoernellens1/strix-opencode.git
@@ -443,6 +432,21 @@ Or if already cloned:
 
 ```bash
 git submodule update --init --recursive
+```
+
+### Replacing with Your Own Fork
+
+```bash
+# 1. Remove existing submodule
+git rm opencode/oh-my-opencode
+rm -rf .git/modules/opencode/oh-my-opencode
+
+# 2. Add your fork
+git submodule add https://github.com/YOUR_USER/oh-my-opencode opencode/oh-my-opencode
+
+# 3. Commit
+git add .gitmodules opencode/oh-my-opencode
+git commit -m "Replace oh-my-opencode submodule with fork"
 ```
 
 ### Updating the Submodule
@@ -459,31 +463,27 @@ git commit -m "Update oh-my-opencode submodule"
 
 ## Distrobox Notes (Ubuntu)
 
-**Ubuntu + distrobox** is the recommended environment for this toolbox ecosystem. Distrobox provides seamless GPU passthrough and lets you run the specialized container images without modifying your host system.
+**Ubuntu + distrobox** is the recommended environment. Distrobox provides seamless GPU passthrough without modifying your host system.
 
 ### Why Distrobox?
 
 - Direct access to `/dev/kfd` and `/dev/dri` GPU devices
 - Host networking by default — no port mapping needed
-- User home directory is shared — HuggingFace cache is accessible
+- User home directory shared — HuggingFace cache accessible
 - Works alongside Docker on the same host
 
-### Example: Create a Distrobox Environment
+### Example
 
 ```bash
-# Create a distrobox for the vLLM toolbox image
 distrobox create \
   --name strix-vllm \
   --image docker.io/kyuz0/vllm-therock-gfx1151:latest \
   --additional-flags "--device /dev/kfd --device /dev/dri"
 
-# Enter the distrobox
 distrobox enter strix-vllm
 ```
 
-### Running with Host Docker Compose
-
-You don't have to use distrobox for the compose stack — running `docker compose` directly on the host works fine if Docker has GPU access. Distrobox is most useful when you want an interactive shell inside the toolbox images for debugging or manual model testing.
+You don't need distrobox for the compose stack — `docker compose` directly on the host works fine if Docker has GPU access. Distrobox is most useful for interactive debugging inside the toolbox images.
 
 ---
 
@@ -491,42 +491,66 @@ You don't have to use distrobox for the compose stack — running `docker compos
 
 ### Models fail to download
 
-- Check your HuggingFace token is set: `echo $HF_TOKEN`
-- Ensure you've accepted license terms for gated models on [huggingface.co](https://huggingface.co)
-- Check disk space: large models can be 50–150 GB
+- Check `HF_TOKEN` is set in `.env`
+- Accept license terms for gated models on [huggingface.co](https://huggingface.co)
+- Check disk space: GPU models need ~85 GB, GGUF reviewer needs ~40 GB
 
 ### GPU not detected
 
-- Verify device nodes exist: `ls -la /dev/kfd /dev/dri`
-- Check your user is in the `video` and `render` groups: `groups`
-- On Ubuntu, install the AMDGPU driver: `sudo apt install amdgpu-dkms`
+- Verify device nodes: `ls -la /dev/kfd /dev/dri`
+- Check groups: `groups` should include `video` and `render`
+- On Ubuntu: `sudo apt install amdgpu-dkms`
 
-### Out of GPU memory
+### Out of GPU memory / system freeze
 
-- Ensure `*_GPU_UTIL` values in `.env` **sum to ≤ 1.0** (default: `0.65 + 0.20 = 0.85`)
-- Lower individual `*_GPU_UTIL` values if needed
-- Reduce `*_MAX_LEN` values to shrink KV cache per request
-- Set `*_KV_CACHE_DTYPE=fp8` to halve KV cache memory
-- Use a smaller model or quantized variant
-- In hybrid mode, the llama.cpp orchestrator uses less VRAM for quantized GGUF models
+- Ensure `ORCH_GPU_UTIL + CODER_GPU_UTIL <= 1.0` (default: 0.95)
+- Enlarge swap file (128 GB recommended)
+- Install earlyoom: `sudo apt install earlyoom`
+- Reduce `*_MAX_LEN` to shrink KV cache
+- **Do NOT use FP8 KV cache** (`--kv-cache-dtype fp8`) — uncalibrated on this hardware
+- **Do NOT use quantized models** (AWQ, GPTQ) — they crash on gfx1151
+
+### Coder container fails to start
+
+- Check that orchestrator is healthy first (`docker logs vllm_orchestrator`)
+- Coder waits for orchestrator via `depends_on: service_healthy`
+- Both must not start simultaneously on shared-memory GPUs (staggered startup is configured)
 
 ### Port conflicts
 
-- Check if ports are already in use: `ss -tlnp | grep -E '800[14]|8011'`
+- Check ports: `ss -tlnp | grep -E '800[12]|801[12]'`
 - Change port numbers in `.env`
 
 ### Container keeps restarting
 
-- Check logs: `docker logs vllm_orchestrator`
-- Ensure the model name is correct and accessible
+- Check logs: `docker logs vllm_orchestrator` / `docker logs vllm_coder`
+- For CPU tiers: `docker logs llama_reviewer` / `docker logs llama_utility`
+- Verify model name and GGUF filename are correct
 - Verify GPU device permissions
 
 ### switch-orch breaks opencode.jsonc
 
-- The script uses `sed` to replace the `"primary"` line. If the file is malformed, restore it:
+- The script uses `sed` to replace the `"primary"` line. If malformed, restore:
   ```bash
   git checkout opencode/opencode.jsonc
   ```
+
+---
+
+## Hardware Constraints (gfx1151 / RDNA 3.5)
+
+This hardware has specific limitations documented in [DECISIONS.md](DECISIONS.md):
+
+| What | Status | Why |
+|------|--------|-----|
+| BF16 weights | Works | Native support |
+| BF16 KV cache | Works | Native support |
+| FP8 weights (`--quantization fp8`) | Crashes | `torch._scaled_mm` requires MI300+ |
+| AWQ INT4 (pre-quantized) | GPU hang | Triton AWQ kernels incompatible with wave32 |
+| FP8 KV cache (`--kv-cache-dtype fp8`) | Accuracy loss | Uncalibrated scales (1.0) |
+| GPTQ/Marlin/bitsandbytes | N/A | CUDA-only in vLLM |
+
+**Bottom line: ALL models must use BF16 weights + BF16 KV cache on Strix Halo gfx1151.**
 
 ---
 
@@ -535,12 +559,14 @@ You don't have to use distrobox for the compose stack — running `docker compos
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feature/my-change`
 3. Make your changes
-4. Test with `./scripts/up` and `./scripts/health`
-5. Submit a pull request
+4. Test: `./scripts/up full && ./scripts/health`
+5. Validate compose: `docker compose -f compose/vllm.yml -f compose/cpu.yml --env-file .env config`
+6. Submit a pull request
 
-### Key Guidelines
+### Guidelines
 
 - Keep `.env.example` up to date with any new environment variables
-- Don't commit `.env` or model files
+- Don't commit `.env`, `secrets/`, or model files
 - Test compose files with `docker compose config` before committing
-- Maintain script compatibility with `bash` (no bashisms beyond what `set -euo pipefail` requires)
+- Maintain script compatibility with `bash` (`set -euo pipefail`)
+- Update DECISIONS.md for any architecture changes

@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-# Source .env for port overrides; fall back to defaults if missing
 if [[ -f .env ]]; then
   set -a
   source .env
@@ -20,6 +19,7 @@ function check() {
   echo ""
 }
 
-check "${ORCH_PORT:-8001}" "vLLM Orchestrator+Coder"
-check "${FAST_PORT:-8004}" "vLLM Fast"
-check "${LLAMA_ORCH_PORT:-8011}" "llama.cpp Orchestrator"
+check "${ORCH_PORT:-8001}" "Tier 1 Orchestrator (vLLM)"
+check "${CODER_PORT:-8002}" "Tier 2 Coder (vLLM)"
+check "${REVIEWER_PORT:-8011}" "Tier 3 Reviewer (llama.cpp)"
+check "${UTILITY_PORT:-8012}" "Tier 0 Utility (llama.cpp)"
