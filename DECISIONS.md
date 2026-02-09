@@ -128,6 +128,47 @@ Separates concerns across 6 agents with dedicated models per role:
 - **Loki** generates adversarial challenges, edge cases, alternative approaches → 7B model for balanced capability
 - **Frigga** manages documentation, context compression, long-term knowledge → 14B model for quality writing
 
+### Phase 4: GPU-only via Bifrost scheduler
+
+All 6 agents on GPU via vLLM BF16. Bifrost scheduler manages memory by stopping non-essential agents when Odin is summoned. However, this approach has limits:
+
+- **Total VRAM pressure**: Running all 6 agents BF16 exceeds 120 GB budget
+- **No quantization on gfx1151**: AWQ, FP8, GPTQ all fail (see Section 2)
+- **Odin context limited**: QwQ-32B needs large memory, 20K context cap
+
+### Phase 5: Hybrid Architecture (current)
+
+**Key insight**: llama.cpp with ROCm GPU offload works excellently on RDNA 3.5 (gfx1151) with recent rocwmma optimizations. GGUF Q4_K_M models are much smaller than BF16, enabling larger context windows.
+
+| Agent | Backend | Model | VRAM | Context |
+|-------|---------|-------|------|---------|
+| Thor ⚡ | llama.cpp (GGUF, GPU) | Qwen2.5-14B-Instruct Q4_K_M | ~8 GB | 64K |
+| Valkyrie 🛡 | llama.cpp (GGUF, GPU) | Qwen3-Coder-30B-A3B-Instruct Q4_K_M | ~17 GB | 48K |
+| Odin 👁️ | llama.cpp (GGUF, GPU) | Llama-3.3-70B-Instruct Q4_K_M | ~40 GB | 32K |
+| Heimdall 👁 | vLLM (BF16, GPU) | Qwen2.5-3B-Instruct | ~6 GB | 8K |
+| Loki 🧠 | vLLM (BF16, GPU) | Qwen2.5-7B-Instruct | ~14 GB | 16K |
+| Frigga 🌿 | vLLM (BF16, GPU) | Qwen2.5-14B-Instruct | ~28 GB | 16K |
+
+**Why hybrid:**
+- **llama.cpp GGUF on GPU** is ~3x smaller than vLLM BF16 for main agents
+- **Main agents (Thor, Valkyrie, Odin)** run llama.cpp GGUF — smaller memory, longer context
+- **Utility agents (Heimdall, Loki, Frigga)** run vLLM BF16 — simpler setup, on-demand via Bifrost
+- **Odin with 32K context** is now feasible (vs 20K with QwQ-32B BF16)
+- **Total standard profile: ~25 GB** (Thor 8 + Valkyrie 17) — leaves 95+ GB headroom
+
+**Memory profiles:**
+- `standard`: Thor (~8) + Valkyrie (~17) = ~25 GB
+- `heimdall`: Thor + Valkyrie + Heimdall (~6) = ~31 GB
+- `loki`: Thor + Valkyrie + Loki (~14) = ~39 GB
+- `frigga`: Thor + Valkyrie + Frigga (~28) = ~53 GB
+- `odin`: Thor (~8) + Odin (~40) = ~48 GB (stops Valkyrie)
+
+**AWQ research finding:**
+The migration instructions suggested AWQ INT4 for vLLM, but testing proved this **does not work on AMD GPUs**. vLLM's official compatibility table shows ❌ for AMD GPU + AWQ. Triton AWQ kernels require CDNA (MI-series) wave64 execution; RDNA 3.5 uses wave32. This causes GPU hangs requiring hard reboot.
+
+**llama.cpp ROCm performance:**
+Recent rocwmma kernel optimizations (2024-12) improved llama.cpp performance on AMD GPUs by 136% at long context. With `-ngl 999 --flash-attn`, full GPU offload works well on gfx1151.
+
 ---
 
 ## 4. Model Selection (Norse Agents)
