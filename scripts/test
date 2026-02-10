@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO_ROOT"
+
+# Install test deps if needed
+pip install -q -r tests/requirements.txt -r bifrost/requirements.txt 2>/dev/null || true
+
+MODE="${1:-unit}"
+
+case "$MODE" in
+  unit)
+    pytest tests/ -v --ignore=tests/test_integration.py
+    ;;
+  integration)
+    pytest tests/test_integration.py -v -m integration
+    ;;
+  all)
+    pytest tests/ -v
+    ;;
+  *)
+    echo "Usage: $0 {unit|integration|all}"
+    exit 1
+    ;;
+esac
