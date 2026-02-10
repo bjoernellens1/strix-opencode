@@ -1,7 +1,7 @@
 FROM python:3.12-slim
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends docker.io ca-certificates \
+    && apt-get install -y --no-install-recommends docker.io docker-cli docker-compose ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /bifrost

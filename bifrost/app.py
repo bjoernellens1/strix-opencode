@@ -7,6 +7,8 @@ import logging
 import os
 import subprocess
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Literal, cast
@@ -24,7 +26,7 @@ logging.basicConfig(
 
 
 COMPOSE_PROJECT_DIR = "/app"
-COMPOSE_FILE = "compose/hybrid.yml"
+COMPOSE_FILE = "/app/compose/hybrid.yml"
 COMPOSE_FILE_MOUNT_PATH = "/app/compose/hybrid.yml"
 ENV_FILE = "/app/.env"
 
@@ -34,8 +36,8 @@ MANAGED_AGENTS: set[str] = PROFILE_ON_DEMAND | {"valkyrie"}
 ALL_KNOWN_AGENTS: set[str] = MANAGED_AGENTS | {"thor"}
 ProfileName = Literal["standard", "heimdall", "loki", "frigga", "odin"]
 
-LLAMA_AGENTS: set[str] = {"thor", "valkyrie", "odin"}
-VLLM_AGENTS: set[str] = {"heimdall", "loki", "frigga"}
+LLAMA_AGENTS: set[str] = set()
+VLLM_AGENTS: set[str] = {"thor", "valkyrie", "odin", "heimdall", "loki", "frigga"}
 
 
 def container_name(agent: str) -> str:
@@ -361,15 +363,23 @@ class BifrostManager:
         )
 
 
-app = FastAPI(title="Bifrost", version="1.0.0")
 manager = BifrostManager()
 
 
-@app.on_event("startup")
-async def startup_event() -> None:
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     logger.info("Starting Bifrost scheduler on port %d", manager.port)
-    asyncio.create_task(manager.background_loop())
+    task = asyncio.create_task(manager.background_loop())
     await manager.poll_health()
+    yield
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+
+app = FastAPI(title="Bifrost", version="1.0.0", lifespan=lifespan)
 
 
 @app.get("/v1/health", response_model=HealthResponse)

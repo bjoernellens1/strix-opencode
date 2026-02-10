@@ -1,97 +1,94 @@
-# Hybrid Norse Agent Architecture — Phase 5
+# Full vLLM Norse Agent Architecture — Phase 6
 #
-# llama.cpp (ROCm GPU, GGUF Q4_K_M) for main agents:
-#   - Thor: Qwen2.5-14B-Instruct (~8 GB)
-#   - Valkyrie: Qwen3-Coder-30B-A3B-Instruct (~17 GB)
-#   - Odin: Llama-3.3-70B-Instruct (~40 GB) — on-demand
-#
-# vLLM (GPU, BF16) for utility agents:
-#   - Heimdall: Qwen2.5-3B-Instruct (~6 GB)
-#   - Loki: Qwen2.5-7B-Instruct (~14 GB)
-#   - Frigga: Qwen2.5-14B-Instruct (~28 GB)
+# All 6 agents run on GPU via vLLM (BF16).
+# Thor + Valkyrie are the "standard" profile (always-on during normal operation).
+# Heimdall, Loki, Frigga, Odin are on-demand — managed by the Bifrost scheduler.
 #
 # Memory budget (120 GB usable):
-#   Thor (8) + Valkyrie (17) + utility (max 28) = ~53 GB
-#   Thor (8) + Valkyrie (17) + Odin (40) = ~65 GB (stops Valkyrie)
+#   Thor (28) + Valkyrie (57) + utility (max 28) = ~113 GB (tight!)
+#   Thor (28) + Valkyrie (0) + Odin (65) = ~93 GB (stops Valkyrie)
 #
-# All llama.cpp servers use -ngl 999 for full GPU offload + flash-attn.
-# Staggered startup via depends_on healthchecks.
+# Staggered startup: Thor loads first (healthcheck gate), then the next agent.
 
 services:
   # ====================================================================
-  # TIER 0: CORE — llama.cpp Thor (always running)
+  # TIER 0: CORE — vLLM Thor (always running)
   # ====================================================================
 
-  llama_thor:
-    image: docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4-rocwmma
-    container_name: llama_thor
+  vllm_thor:
+    image: docker.io/kyuz0/vllm-therock-gfx1151:latest # ROCm 7.3.5 (verified)
+    container_name: vllm_thor
     network_mode: host
-    devices: ["/dev/dri", "/dev/kfd"]
+    devices: ["/dev/kfd", "/dev/dri"]
     security_opt: ["seccomp=unconfined"]
     group_add: ["video", "render"]
+    environment:
+      - HF_HOME=${HF_HOME}
+      - HF_TOKEN=${HF_TOKEN}
     volumes:
-      - ${LLAMA_MODELS_DIR}:/models
+      - ${HF_HOME}:${HF_HOME}
+      - ${VLLM_CACHE}:/root/.cache/vllm
+      - ${REPO_ROOT}/models:/models
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://127.0.0.1:${THOR_PORT}/v1/models || exit 1"]
       interval: 10s
       timeout: 5s
-      retries: 60
-      start_period: 120s
+      retries: 120
+      start_period: 300s
     command: >
-      bash -lc "
-      llama-server
+      vllm serve ${THOR_MODEL}
       --host 0.0.0.0 --port ${THOR_PORT}
-      -m /models/${THOR_GGUF}
-      -c ${THOR_CTX}
-      --device ${LLAMA_DEVICE:-ROCm0}
-      -ngl ${THOR_N_GPU_LAYERS:-auto} --flash-attn auto
-      --parallel ${THOR_PARALLEL:-1}
-      -t ${THOR_THREADS:-8}
-      --no-mmap
-      "
+      --dtype float16
+      --gpu-memory-utilization ${THOR_GPU_UTIL}
+      --max-model-len ${THOR_MAX_LEN}
+      --kv-cache-dtype ${THOR_KV_CACHE_DTYPE:-auto}
+      --max-num-seqs ${THOR_MAX_NUM_SEQS:-4}
+      --enable-prefix-caching
 
   # ====================================================================
-  # TIER 1: CODER — llama.cpp Valkyrie (standard profile)
+  # TIER 1: CODER — vLLM Valkyrie (standard profile)
   # ====================================================================
 
-  llama_valkyrie:
-    image: docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4-rocwmma
-    container_name: llama_valkyrie
+  vllm_valkyrie:
+    image: docker.io/kyuz0/vllm-therock-gfx1151:latest # ROCm 7.3.5 (verified)
+    container_name: vllm_valkyrie
     network_mode: host
-    devices: ["/dev/dri", "/dev/kfd"]
+    devices: ["/dev/kfd", "/dev/dri"]
     security_opt: ["seccomp=unconfined"]
     group_add: ["video", "render"]
     profiles: ["standard"]
+    environment:
+      - HF_HOME=${HF_HOME}
+      - HF_TOKEN=${HF_TOKEN}
     volumes:
-      - ${LLAMA_MODELS_DIR}:/models
+      - ${HF_HOME}:${HF_HOME}
+      - ${VLLM_CACHE}:/root/.cache/vllm
+      - ${REPO_ROOT}/models:/models
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://127.0.0.1:${VALKYRIE_PORT}/v1/models || exit 1"]
       interval: 10s
       timeout: 5s
-      retries: 60
-      start_period: 120s
+      retries: 120
+      start_period: 300s
     depends_on:
-      llama_thor:
+      vllm_thor:
         condition: service_healthy
     command: >
-      bash -lc "
-      llama-server
+      vllm serve ${VALKYRIE_MODEL}
       --host 0.0.0.0 --port ${VALKYRIE_PORT}
-      -m /models/${VALKYRIE_GGUF}
-      -c ${VALKYRIE_CTX}
-      --device ${LLAMA_DEVICE:-ROCm0}
-      -ngl ${VALKYRIE_N_GPU_LAYERS:-auto} --flash-attn auto
-      --parallel ${VALKYRIE_PARALLEL:-1}
-      -t ${VALKYRIE_THREADS:-8}
-      --no-mmap
-      "
+      --dtype float16
+      --gpu-memory-utilization ${VALKYRIE_GPU_UTIL}
+      --max-model-len ${VALKYRIE_MAX_LEN}
+      --kv-cache-dtype ${VALKYRIE_KV_CACHE_DTYPE:-auto}
+      --max-num-seqs ${VALKYRIE_MAX_NUM_SEQS:-4}
+      --enable-prefix-caching
 
   # ====================================================================
-  # TIER 2: UTILITY — vLLM (BF16, on-demand via Bifrost)
+  # TIER 2: UTILITY — vLLM (GGUF, on-demand via Bifrost)
   # ====================================================================
 
   vllm_heimdall:
-    image: docker.io/kyuz0/vllm-therock-gfx1151:latest
+    image: docker.io/kyuz0/vllm-therock-gfx1151:latest # ROCm 7.3.5 (verified)
     container_name: vllm_heimdall
     network_mode: host
     devices: ["/dev/kfd", "/dev/dri"]
@@ -103,20 +100,21 @@ services:
       - HF_TOKEN=${HF_TOKEN}
     volumes:
       - ${HF_HOME}:${HF_HOME}
-      - ${VLLM_CACHE}:${VLLM_CACHE}
+      - ${VLLM_CACHE}:/root/.cache/vllm
+      - ${REPO_ROOT}/models:/models
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://127.0.0.1:${HEIMDALL_PORT}/v1/models || exit 1"]
       interval: 10s
       timeout: 5s
-      retries: 60
-      start_period: 120s
+      retries: 120
+      start_period: 300s
     depends_on:
-      llama_thor:
+      vllm_thor:
         condition: service_healthy
     command: >
       vllm serve ${HEIMDALL_MODEL}
       --host 0.0.0.0 --port ${HEIMDALL_PORT}
-      --dtype auto
+      --dtype float16
       --gpu-memory-utilization ${HEIMDALL_GPU_UTIL}
       --max-model-len ${HEIMDALL_MAX_LEN}
       --kv-cache-dtype auto
@@ -124,7 +122,7 @@ services:
       --enable-prefix-caching
 
   vllm_loki:
-    image: docker.io/kyuz0/vllm-therock-gfx1151:latest
+    image: docker.io/kyuz0/vllm-therock-gfx1151:latest # ROCm 7.3.5 (verified)
     container_name: vllm_loki
     network_mode: host
     devices: ["/dev/kfd", "/dev/dri"]
@@ -136,20 +134,21 @@ services:
       - HF_TOKEN=${HF_TOKEN}
     volumes:
       - ${HF_HOME}:${HF_HOME}
-      - ${VLLM_CACHE}:${VLLM_CACHE}
+      - ${VLLM_CACHE}:/root/.cache/vllm
+      - ${REPO_ROOT}/models:/models
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://127.0.0.1:${LOKI_PORT}/v1/models || exit 1"]
       interval: 10s
       timeout: 5s
-      retries: 60
-      start_period: 120s
+      retries: 120
+      start_period: 300s
     depends_on:
-      llama_thor:
+      vllm_thor:
         condition: service_healthy
     command: >
       vllm serve ${LOKI_MODEL}
       --host 0.0.0.0 --port ${LOKI_PORT}
-      --dtype auto
+      --dtype float16
       --gpu-memory-utilization ${LOKI_GPU_UTIL}
       --max-model-len ${LOKI_MAX_LEN}
       --kv-cache-dtype auto
@@ -157,7 +156,7 @@ services:
       --enable-prefix-caching
 
   vllm_frigga:
-    image: docker.io/kyuz0/vllm-therock-gfx1151:latest
+    image: docker.io/kyuz0/vllm-therock-gfx1151:latest # ROCm 7.3.5 (verified)
     container_name: vllm_frigga
     network_mode: host
     devices: ["/dev/kfd", "/dev/dri"]
@@ -170,19 +169,20 @@ services:
     volumes:
       - ${HF_HOME}:${HF_HOME}
       - ${VLLM_CACHE}:${VLLM_CACHE}
+      - ${REPO_ROOT}/models:/models
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://127.0.0.1:${FRIGGA_PORT}/v1/models || exit 1"]
       interval: 10s
       timeout: 5s
-      retries: 60
-      start_period: 120s
+      retries: 120
+      start_period: 300s
     depends_on:
-      llama_thor:
+      vllm_thor:
         condition: service_healthy
     command: >
       vllm serve ${FRIGGA_MODEL}
       --host 0.0.0.0 --port ${FRIGGA_PORT}
-      --dtype auto
+      --dtype float16
       --gpu-memory-utilization ${FRIGGA_GPU_UTIL}
       --max-model-len ${FRIGGA_MAX_LEN}
       --kv-cache-dtype auto
@@ -190,40 +190,42 @@ services:
       --enable-prefix-caching
 
   # ====================================================================
-  # TIER 3: ESCALATION — llama.cpp Odin (on-demand, stops Valkyrie)
+  # TIER 3: ESCALATION — vLLM Odin (GGUF, on-demand)
   # ====================================================================
 
-  llama_odin:
-    image: docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4-rocwmma
-    container_name: llama_odin
+  vllm_odin:
+    image: docker.io/kyuz0/vllm-therock-gfx1151:latest # ROCm 7.3.5 (verified)
+    container_name: vllm_odin
     network_mode: host
-    devices: ["/dev/dri", "/dev/kfd"]
+    devices: ["/dev/kfd", "/dev/dri"]
     security_opt: ["seccomp=unconfined"]
     group_add: ["video", "render"]
     profiles: ["odin"]
+    environment:
+      - HF_HOME=${HF_HOME}
+      - HF_TOKEN=${HF_TOKEN}
     volumes:
-      - ${LLAMA_MODELS_DIR}:/models
+      - ${HF_HOME}:${HF_HOME}
+      - ${VLLM_CACHE}:/root/.cache/vllm
+      - ${REPO_ROOT}/models:/models
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://127.0.0.1:${ODIN_PORT}/v1/models || exit 1"]
       interval: 10s
       timeout: 5s
-      retries: 90
-      start_period: 180s
+      retries: 120
+      start_period: 600s
     depends_on:
-      llama_thor:
+      vllm_thor:
         condition: service_healthy
     command: >
-      bash -lc "
-      llama-server
+      vllm serve ${ODIN_MODEL}
       --host 0.0.0.0 --port ${ODIN_PORT}
-      -m /models/${ODIN_GGUF}
-      -c ${ODIN_CTX}
-      --device ${LLAMA_DEVICE:-ROCm0}
-      -ngl ${ODIN_N_GPU_LAYERS:-auto} --flash-attn auto
-      --parallel ${ODIN_PARALLEL:-1}
-      -t ${ODIN_THREADS:-16}
-      --no-mmap
-      "
+      --dtype float16
+      --gpu-memory-utilization ${ODIN_GPU_UTIL}
+      --max-model-len ${ODIN_MAX_LEN}
+      --kv-cache-dtype auto
+      --max-num-seqs ${ODIN_MAX_NUM_SEQS:-2}
+      --enable-prefix-caching
 
   # ====================================================================
   # BIFROST — Scheduler daemon (FastAPI, manages both backends)

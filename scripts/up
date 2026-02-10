@@ -26,7 +26,7 @@ case "$MODE" in
     $COMPOSE -f compose/gpu-all.yml --profile standard up -d
     ;;
   hybrid)
-    # Hybrid mode (Phase 5) — llama.cpp GGUF for Thor/Valkyrie/Odin, vLLM BF16 for utility.
+    # vLLM-only mode (Phase 6) — All agents run on vLLM (BF16).
     # Starts Thor + Valkyrie + Bifrost. Other agents summoned on-demand.
     $COMPOSE -f compose/hybrid.yml --profile standard --profile bifrost up -d
     ;;
