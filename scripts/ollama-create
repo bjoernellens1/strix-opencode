@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+MODELS_DIR="$ROOT/ollama-modelfiles"
+
+declare -A MODELS=(
+  ["qwen2.5:14b-instruct-q4_K_M-64k"]="Qwen2.5-14B-64k.Modelfile"
+  ["qwen3-coder:30b-64k"]="Qwen3-Coder-30B-64k.Modelfile"
+  ["llama3:70b-instruct-q4_K_M-64k"]="Llama3.3-70B-64k.Modelfile"
+)
+
+for tag in "${!MODELS[@]}"; do
+  file="${MODELS[$tag]}"
+  echo "== Creating ${tag} from ${file}"
+  ollama create "${tag}" -f "${MODELS_DIR}/${file}"
+done

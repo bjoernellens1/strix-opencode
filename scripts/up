@@ -6,7 +6,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 cp -n "$REPO_ROOT/.env.example" "$REPO_ROOT/.env" 2>/dev/null || true
 
-MODE="${1:-gpu}"
+MODE="${1:-ollama}"
 
 # --project-directory ensures relative paths in .env (e.g., ./models)
 # resolve from the repo root, not from the compose file's directory.
@@ -15,6 +15,24 @@ COMPOSE="docker compose --project-directory $REPO_ROOT --env-file $REPO_ROOT/.en
 case "$MODE" in
   gpu)
     $COMPOSE -f compose/vllm.yml up -d
+    ;;
+  gpu-all)
+    # GPU-only mode (Phase 4) with vLLM BF16 for all agents.
+    # Starts Thor (always-on) + Valkyrie (standard profile) + Bifrost daemon.
+    $COMPOSE -f compose/gpu-all.yml --profile standard --profile bifrost up -d
+    ;;
+  gpu-all-no-bifrost)
+    # GPU-only mode without Bifrost. Thor + Valkyrie only.
+    $COMPOSE -f compose/gpu-all.yml --profile standard up -d
+    ;;
+  hybrid)
+    # vLLM-only mode (Phase 6) — All agents run on vLLM (AWQ).
+    # Starts Thor + Valkyrie + Bifrost. Other agents summoned on-demand.
+    $COMPOSE -f compose/hybrid.yml --profile standard --profile bifrost up -d
+    ;;
+  hybrid-no-bifrost)
+    # Hybrid mode without Bifrost. Thor + Valkyrie only.
+    $COMPOSE -f compose/hybrid.yml --profile standard up -d
     ;;
   cpu)
     $COMPOSE -f compose/cpu.yml up -d
@@ -28,8 +46,23 @@ case "$MODE" in
   hybrid-rocm)
     $COMPOSE -f compose/vllm.yml -f compose/fallback.rocm-6.4.4-rocwmma.orch.yml up -d
     ;;
+  ollama)
+    # Ollama-only mode — Host Ollama service (no containers).
+    if command -v systemctl >/dev/null 2>&1; then
+      if systemctl is-active --quiet ollama; then
+        echo "Ollama service is already running."
+      else
+        echo "Ollama service is not running."
+        echo "Start it with: sudo systemctl enable --now ollama"
+        exit 1
+      fi
+    else
+      echo "systemctl not found. Start Ollama manually: ollama serve"
+      exit 1
+    fi
+    ;;
   *)
-    echo "Usage: $0 {gpu|cpu|full|hybrid-radv|hybrid-rocm}"
+    echo "Usage: $0 {ollama|gpu|gpu-all|gpu-all-no-bifrost|hybrid|hybrid-no-bifrost|cpu|full|hybrid-radv|hybrid-rocm}"
     exit 1
     ;;
 esac

@@ -1,0 +1,268 @@
+# Full vLLM Norse Agent Architecture — Phase 6
+#
+# All 6 agents run on GPU via vLLM (AWQ).
+# Thor + Valkyrie are the "standard" profile (always-on during normal operation).
+# Heimdall, Loki, Frigga, Odin are on-demand — managed by the Bifrost scheduler.
+#
+# Memory budget (120 GB usable):
+#   Thor (0.20) + Valkyrie (0.40) + utility (max 0.15) = ~0.75 utilization
+#   Thor + Odin (0.50) fits easily (managed by Bifrost)
+#
+# Staggered startup: Thor loads first (healthcheck gate), then the next agent.
+
+services:
+  # ====================================================================
+  # TIER 0: CORE — vLLM Thor (always running)
+  # ====================================================================
+
+  vllm_thor:
+    image: docker.io/kyuz0/vllm-therock-gfx1151:latest # ROCm 7.3.5 (verified)
+    container_name: vllm_thor
+    network_mode: host
+    devices: ["/dev/kfd", "/dev/dri"]
+    security_opt: ["seccomp=unconfined"]
+    group_add: ["video", "render"]
+    environment:
+      - HF_HOME=${HF_HOME}
+      - HF_TOKEN=${HF_TOKEN}
+    volumes:
+      - ${HF_HOME}:${HF_HOME}
+      - ${VLLM_CACHE}:/root/.cache/vllm
+      - ${REPO_ROOT}/models:/models
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:${THOR_PORT}/v1/models || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 120
+      start_period: 300s
+    command: >
+      vllm serve ${THOR_MODEL}
+      --host 0.0.0.0 --port ${THOR_PORT}
+      --dtype float16
+      --gpu-memory-utilization ${THOR_GPU_UTIL}
+      --max-model-len ${THOR_MAX_LEN}
+      --kv-cache-dtype ${THOR_KV_CACHE_DTYPE:-auto}
+      --max-num-seqs ${THOR_MAX_NUM_SEQS:-4}
+      --enable-prefix-caching
+      --enable-auto-tool-choice
+      --tool-call-parser=hermes
+
+  # ====================================================================
+  # TIER 1: CODER — vLLM Valkyrie (standard profile)
+  # ====================================================================
+
+  vllm_valkyrie:
+    image: docker.io/kyuz0/vllm-therock-gfx1151:latest # ROCm 7.3.5 (verified)
+    container_name: vllm_valkyrie
+    network_mode: host
+    devices: ["/dev/kfd", "/dev/dri"]
+    security_opt: ["seccomp=unconfined"]
+    group_add: ["video", "render"]
+    profiles: ["standard"]
+    environment:
+      - HF_HOME=${HF_HOME}
+      - HF_TOKEN=${HF_TOKEN}
+    volumes:
+      - ${HF_HOME}:${HF_HOME}
+      - ${VLLM_CACHE}:/root/.cache/vllm
+      - ${REPO_ROOT}/models:/models
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:${VALKYRIE_PORT}/v1/models || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 120
+      start_period: 300s
+    depends_on:
+      vllm_thor:
+        condition: service_healthy
+    command: >
+      vllm serve ${VALKYRIE_MODEL}
+      --host 0.0.0.0 --port ${VALKYRIE_PORT}
+      --dtype float16
+      --gpu-memory-utilization ${VALKYRIE_GPU_UTIL}
+      --max-model-len ${VALKYRIE_MAX_LEN}
+      --kv-cache-dtype ${VALKYRIE_KV_CACHE_DTYPE:-auto}
+      --max-num-seqs ${VALKYRIE_MAX_NUM_SEQS:-4}
+      --enable-prefix-caching
+      --enable-auto-tool-choice
+      --tool-call-parser=hermes
+
+  # ====================================================================
+  # TIER 2: UTILITY — vLLM (AWQ, on-demand via Bifrost)
+  # ====================================================================
+
+  vllm_heimdall:
+    image: docker.io/kyuz0/vllm-therock-gfx1151:latest # ROCm 7.3.5 (verified)
+    container_name: vllm_heimdall
+    network_mode: host
+    devices: ["/dev/kfd", "/dev/dri"]
+    security_opt: ["seccomp=unconfined"]
+    group_add: ["video", "render"]
+    profiles: ["heimdall"]
+    environment:
+      - HF_HOME=${HF_HOME}
+      - HF_TOKEN=${HF_TOKEN}
+    volumes:
+      - ${HF_HOME}:${HF_HOME}
+      - ${VLLM_CACHE}:/root/.cache/vllm
+      - ${REPO_ROOT}/models:/models
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:${HEIMDALL_PORT}/v1/models || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 120
+      start_period: 300s
+    depends_on:
+      vllm_thor:
+        condition: service_healthy
+    command: >
+      vllm serve ${HEIMDALL_MODEL}
+      --host 0.0.0.0 --port ${HEIMDALL_PORT}
+      --dtype float16
+      --gpu-memory-utilization ${HEIMDALL_GPU_UTIL}
+      --max-model-len ${HEIMDALL_MAX_LEN}
+      --kv-cache-dtype auto
+      --max-num-seqs ${HEIMDALL_MAX_NUM_SEQS:-4}
+      --enable-prefix-caching
+      --enable-auto-tool-choice
+      --tool-call-parser=hermes
+
+  vllm_loki:
+    image: docker.io/kyuz0/vllm-therock-gfx1151:latest # ROCm 7.3.5 (verified)
+    container_name: vllm_loki
+    network_mode: host
+    devices: ["/dev/kfd", "/dev/dri"]
+    security_opt: ["seccomp=unconfined"]
+    group_add: ["video", "render"]
+    profiles: ["loki"]
+    environment:
+      - HF_HOME=${HF_HOME}
+      - HF_TOKEN=${HF_TOKEN}
+    volumes:
+      - ${HF_HOME}:${HF_HOME}
+      - ${VLLM_CACHE}:/root/.cache/vllm
+      - ${REPO_ROOT}/models:/models
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:${LOKI_PORT}/v1/models || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 120
+      start_period: 300s
+    depends_on:
+      vllm_thor:
+        condition: service_healthy
+    command: >
+      vllm serve ${LOKI_MODEL}
+      --host 0.0.0.0 --port ${LOKI_PORT}
+      --dtype float16
+      --gpu-memory-utilization ${LOKI_GPU_UTIL}
+      --max-model-len ${LOKI_MAX_LEN}
+      --kv-cache-dtype auto
+      --max-num-seqs ${LOKI_MAX_NUM_SEQS:-4}
+      --enable-prefix-caching
+      --enable-auto-tool-choice
+      --tool-call-parser=hermes
+
+  vllm_frigga:
+    image: docker.io/kyuz0/vllm-therock-gfx1151:latest # ROCm 7.3.5 (verified)
+    container_name: vllm_frigga
+    network_mode: host
+    devices: ["/dev/kfd", "/dev/dri"]
+    security_opt: ["seccomp=unconfined"]
+    group_add: ["video", "render"]
+    profiles: ["frigga"]
+    environment:
+      - HF_HOME=${HF_HOME}
+      - HF_TOKEN=${HF_TOKEN}
+    volumes:
+      - ${HF_HOME}:${HF_HOME}
+      - ${VLLM_CACHE}:${VLLM_CACHE}
+      - ${REPO_ROOT}/models:/models
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:${FRIGGA_PORT}/v1/models || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 120
+      start_period: 300s
+    depends_on:
+      vllm_thor:
+        condition: service_healthy
+    command: >
+      vllm serve ${FRIGGA_MODEL}
+      --host 0.0.0.0 --port ${FRIGGA_PORT}
+      --dtype float16
+      --gpu-memory-utilization ${FRIGGA_GPU_UTIL}
+      --max-model-len ${FRIGGA_MAX_LEN}
+      --kv-cache-dtype auto
+      --max-num-seqs ${FRIGGA_MAX_NUM_SEQS:-4}
+      --enable-prefix-caching
+      --enable-auto-tool-choice
+      --tool-call-parser=hermes
+
+  # ====================================================================
+  # TIER 3: ESCALATION — vLLM Odin (AWQ, on-demand)
+  # ====================================================================
+
+  vllm_odin:
+    image: docker.io/kyuz0/vllm-therock-gfx1151:latest # ROCm 7.3.5 (verified)
+    container_name: vllm_odin
+    network_mode: host
+    devices: ["/dev/kfd", "/dev/dri"]
+    security_opt: ["seccomp=unconfined"]
+    group_add: ["video", "render"]
+    profiles: ["odin"]
+    environment:
+      - HF_HOME=${HF_HOME}
+      - HF_TOKEN=${HF_TOKEN}
+    volumes:
+      - ${HF_HOME}:${HF_HOME}
+      - ${VLLM_CACHE}:/root/.cache/vllm
+      - ${REPO_ROOT}/models:/models
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:${ODIN_PORT}/v1/models || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 120
+      start_period: 600s
+    depends_on:
+      vllm_thor:
+        condition: service_healthy
+    command: >
+      vllm serve ${ODIN_MODEL}
+      --host 0.0.0.0 --port ${ODIN_PORT}
+      --dtype float16
+      --gpu-memory-utilization ${ODIN_GPU_UTIL}
+      --max-model-len ${ODIN_MAX_LEN}
+      --kv-cache-dtype auto
+      --max-num-seqs ${ODIN_MAX_NUM_SEQS:-2}
+      --enable-prefix-caching
+      --enable-auto-tool-choice
+      --tool-call-parser=hermes
+
+  # ====================================================================
+  # BIFROST — Scheduler daemon (FastAPI, manages both backends)
+  # ====================================================================
+
+  bifrost:
+    build:
+      context: ./bifrost
+      dockerfile: Dockerfile
+    container_name: bifrost
+    network_mode: host
+    environment:
+      - BIFROST_PORT=${BIFROST_PORT:-8899}
+      - COMPOSE_PROJECT_DIR=${COMPOSE_PROJECT_DIR:-/app}
+      - DOCKER_HOST=${DOCKER_HOST:-unix:///var/run/docker.sock}
+      # Pass port configs for health checks
+      - THOR_PORT=${THOR_PORT:-8001}
+      - VALKYRIE_PORT=${VALKYRIE_PORT:-8002}
+      - ODIN_PORT=${ODIN_PORT:-8011}
+      - HEIMDALL_PORT=${HEIMDALL_PORT:-8012}
+      - LOKI_PORT=${LOKI_PORT:-8013}
+      - FRIGGA_PORT=${FRIGGA_PORT:-8014}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - .:/app:ro
+    profiles: ["bifrost"]
+    command: >
+      uvicorn app:app --host 0.0.0.0 --port ${BIFROST_PORT:-8899}

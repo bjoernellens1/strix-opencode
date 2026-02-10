@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TARGET="${1:-vllm}"
+TARGET="${1:-ollama}"
 
 FILE="opencode/opencode.jsonc"
 
 case "$TARGET" in
-  vllm)
-    sed -i 's/"primary":[^}]*}/"primary": { "mode": "primary", "model": "local_thor:thor" }/g' "$FILE"
+  ollama)
+    sed -i 's/"primary":[^}]*}/"primary": { "mode": "primary", "model": "ollama_local\\/qwen2.5:14b-instruct-q4_K_M-64k" }/g' "$FILE"
     ;;
   cloud)
     sed -i 's/"primary":[^}]*}/"primary": { "mode": "primary", "model": "cloud_planner:planner" }/g' "$FILE"
     ;;
   *)
-    echo "Usage: $0 {vllm|cloud}"
+    echo "Usage: $0 {ollama|cloud}"
     exit 1
     ;;
 esac
