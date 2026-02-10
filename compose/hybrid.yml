@@ -44,6 +44,8 @@ services:
       --kv-cache-dtype ${THOR_KV_CACHE_DTYPE:-auto}
       --max-num-seqs ${THOR_MAX_NUM_SEQS:-4}
       --enable-prefix-caching
+      --enable-auto-tool-choice
+      --tool-call-parser=hermes
 
   # ====================================================================
   # TIER 1: CODER — vLLM Valkyrie (standard profile)
@@ -82,6 +84,8 @@ services:
       --kv-cache-dtype ${VALKYRIE_KV_CACHE_DTYPE:-auto}
       --max-num-seqs ${VALKYRIE_MAX_NUM_SEQS:-4}
       --enable-prefix-caching
+      --enable-auto-tool-choice
+      --tool-call-parser=hermes
 
   # ====================================================================
   # TIER 2: UTILITY — vLLM (AWQ, on-demand via Bifrost)
@@ -120,6 +124,8 @@ services:
       --kv-cache-dtype auto
       --max-num-seqs ${HEIMDALL_MAX_NUM_SEQS:-4}
       --enable-prefix-caching
+      --enable-auto-tool-choice
+      --tool-call-parser=hermes
 
   vllm_loki:
     image: docker.io/kyuz0/vllm-therock-gfx1151:latest # ROCm 7.3.5 (verified)
@@ -154,6 +160,8 @@ services:
       --kv-cache-dtype auto
       --max-num-seqs ${LOKI_MAX_NUM_SEQS:-4}
       --enable-prefix-caching
+      --enable-auto-tool-choice
+      --tool-call-parser=hermes
 
   vllm_frigga:
     image: docker.io/kyuz0/vllm-therock-gfx1151:latest # ROCm 7.3.5 (verified)
@@ -188,6 +196,8 @@ services:
       --kv-cache-dtype auto
       --max-num-seqs ${FRIGGA_MAX_NUM_SEQS:-4}
       --enable-prefix-caching
+      --enable-auto-tool-choice
+      --tool-call-parser=hermes
 
   # ====================================================================
   # TIER 3: ESCALATION — vLLM Odin (AWQ, on-demand)
@@ -226,6 +236,8 @@ services:
       --kv-cache-dtype auto
       --max-num-seqs ${ODIN_MAX_NUM_SEQS:-2}
       --enable-prefix-caching
+      --enable-auto-tool-choice
+      --tool-call-parser=hermes
 
   # ====================================================================
   # BIFROST — Scheduler daemon (FastAPI, manages both backends)

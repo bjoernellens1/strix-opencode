@@ -1,0 +1,82 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  // Norse Agent Architecture — Phase 6 (Full vLLM AWQ)
+  //
+  // All 6 agents run on vLLM using AWQ 4-bit quantization.
+  //
+  // Model names match the HuggingFace model IDs in .env
+
+  "plugin": [
+    "./oh-my-opencode"
+  ],
+
+  "provider": {
+    // ===== vLLM AWQ agents =====
+    "local_thor": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Thor ⚡ — Primary Commander (vLLM AWQ, Qwen2.5-14B)",
+      "options": { "baseURL": "http://127.0.0.1:8001/v1", "apiKey": "EMPTY" },
+      "models": {
+        "thor": { "name": "Qwen/Qwen2.5-14B-Instruct-AWQ" }
+      }
+    },
+    "local_valkyrie": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Valkyrie 🛡 — Execution Specialist (vLLM AWQ, Qwen3-Coder-30B)",
+      "options": { "baseURL": "http://127.0.0.1:8002/v1", "apiKey": "EMPTY" },
+      "models": {
+        "valkyrie": { "name": "QuantTrio/Qwen3-Coder-30B-A3B-Instruct-AWQ" }
+      }
+    },
+    "local_odin": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Odin 👁️ — Supreme Architect (vLLM AWQ, Llama-3.3-70B)",
+      "options": { "baseURL": "http://127.0.0.1:8011/v1", "apiKey": "EMPTY" },
+      "models": {
+        "odin": { "name": "casperhansen/llama-3.3-70b-instruct-awq" }
+      }
+    },
+    // ===== vLLM agents (AWQ) =====
+    "local_heimdall": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Heimdall 👁 — Guardian (vLLM AWQ, Qwen2.5-3B)",
+      "options": { "baseURL": "http://127.0.0.1:8012/v1", "apiKey": "EMPTY" },
+      "models": {
+        "heimdall": { "name": "Qwen/Qwen2.5-3B-Instruct-AWQ" }
+      }
+    },
+    "local_loki": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Loki 🧠 — Adversarial Intelligence (vLLM AWQ, Qwen2.5-7B)",
+      "options": { "baseURL": "http://127.0.0.1:8013/v1", "apiKey": "EMPTY" },
+      "models": {
+        "loki": { "name": "Qwen/Qwen2.5-7B-Instruct-AWQ" }
+      }
+    },
+    "local_frigga": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Frigga 🌿 — Knowledge Curator (vLLM AWQ, Qwen2.5-14B)",
+      "options": { "baseURL": "http://127.0.0.1:8014/v1", "apiKey": "EMPTY" },
+      "models": {
+        "frigga": { "name": "Qwen/Qwen2.5-14B-Instruct-AWQ" }
+      }
+    },
+    // ===== Cloud fallback =====
+    "cloud_planner": {
+      "npm": "@ai-sdk/openai",
+      "name": "Cloud Planner",
+      "options": { "apiKey": "${OPENAI_API_KEY}" },
+      "models": { "planner": { "name": "${CLOUD_PLANNER_MODEL}" } }
+    }
+  },
+
+  "agent": {
+    "primary":  { "mode": "primary",  "model": "local_thor:thor" },
+    "coder":    { "mode": "subagent", "model": "local_valkyrie:valkyrie" },
+    "reviewer": { "mode": "subagent", "model": "local_odin:odin" },
+    "utility":  { "mode": "subagent", "model": "local_heimdall:heimdall" },
+    "loki":     { "mode": "subagent", "model": "local_loki:loki" },
+    "frigga":   { "mode": "subagent", "model": "local_frigga:frigga" }
+  }
+}
