@@ -1,12 +1,12 @@
 # Full vLLM Norse Agent Architecture — Phase 6
 #
-# All 6 agents run on GPU via vLLM (BF16).
+# All 6 agents run on GPU via vLLM (AWQ).
 # Thor + Valkyrie are the "standard" profile (always-on during normal operation).
 # Heimdall, Loki, Frigga, Odin are on-demand — managed by the Bifrost scheduler.
 #
 # Memory budget (120 GB usable):
-#   Thor (28) + Valkyrie (57) + utility (max 28) = ~113 GB (tight!)
-#   Thor (28) + Valkyrie (0) + Odin (65) = ~93 GB (stops Valkyrie)
+#   Thor (0.20) + Valkyrie (0.40) + utility (max 0.15) = ~0.75 utilization
+#   Thor + Odin (0.50) fits easily (managed by Bifrost)
 #
 # Staggered startup: Thor loads first (healthcheck gate), then the next agent.
 
@@ -84,7 +84,7 @@ services:
       --enable-prefix-caching
 
   # ====================================================================
-  # TIER 2: UTILITY — vLLM (GGUF, on-demand via Bifrost)
+  # TIER 2: UTILITY — vLLM (AWQ, on-demand via Bifrost)
   # ====================================================================
 
   vllm_heimdall:
@@ -190,7 +190,7 @@ services:
       --enable-prefix-caching
 
   # ====================================================================
-  # TIER 3: ESCALATION — vLLM Odin (GGUF, on-demand)
+  # TIER 3: ESCALATION — vLLM Odin (AWQ, on-demand)
   # ====================================================================
 
   vllm_odin:

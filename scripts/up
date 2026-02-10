@@ -26,7 +26,7 @@ case "$MODE" in
     $COMPOSE -f compose/gpu-all.yml --profile standard up -d
     ;;
   hybrid)
-    # vLLM-only mode (Phase 6) — All agents run on vLLM (BF16).
+    # vLLM-only mode (Phase 6) — All agents run on vLLM (AWQ).
     # Starts Thor + Valkyrie + Bifrost. Other agents summoned on-demand.
     $COMPOSE -f compose/hybrid.yml --profile standard --profile bifrost up -d
     ;;

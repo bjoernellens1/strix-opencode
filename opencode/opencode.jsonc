@@ -1,69 +1,65 @@
 {
   "$schema": "https://opencode.ai/config.json",
 
-  // Norse Agent Architecture — Phase 5 Hybrid
+  // Norse Agent Architecture — Phase 6 (Full vLLM AWQ)
   //
-  // llama.cpp GGUF Q4_K_M (ROCm GPU): Thor, Valkyrie, Odin
-  // vLLM BF16 (GPU): Heimdall, Loki, Frigga
+  // All 6 agents run on vLLM using AWQ 4-bit quantization.
   //
-  // Model names differ by backend:
-  //   llama.cpp: serves the GGUF filename (e.g., "qwen2.5-14b-instruct-q4_k_m.gguf")
-  //   vLLM: serves the HuggingFace model ID (e.g., "Qwen/Qwen2.5-3B-Instruct")
+  // Model names match the HuggingFace model IDs in .env
 
   "plugin": [
     "./oh-my-opencode"
   ],
 
   "provider": {
-    // ===== llama.cpp agents (GGUF) =====
+    // ===== vLLM AWQ agents =====
     "local_thor": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Thor ⚡ — Primary Commander (llama.cpp, Qwen2.5-14B GGUF)",
+      "name": "Thor ⚡ — Primary Commander (vLLM AWQ, Qwen2.5-14B)",
       "options": { "baseURL": "http://127.0.0.1:8001/v1", "apiKey": "EMPTY" },
       "models": {
-        // llama-server serves the GGUF filename as model name
-        "thor": { "name": "qwen2.5-14b-instruct-q4_k_m.gguf", "tools": true }
+        "thor": { "name": "Qwen/Qwen2.5-14B-Instruct-AWQ" }
       }
     },
     "local_valkyrie": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Valkyrie 🛡 — Execution Specialist (llama.cpp, Qwen3-Coder-30B GGUF)",
+      "name": "Valkyrie 🛡 — Execution Specialist (vLLM AWQ, Qwen3-Coder-30B)",
       "options": { "baseURL": "http://127.0.0.1:8002/v1", "apiKey": "EMPTY" },
       "models": {
-        "valkyrie": { "name": "Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf", "tools": true }
+        "valkyrie": { "name": "QuantTrio/Qwen3-Coder-30B-A3B-Instruct-AWQ" }
       }
     },
     "local_odin": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Odin 👁️ — Supreme Architect (llama.cpp, Llama-3.3-70B GGUF)",
+      "name": "Odin 👁️ — Supreme Architect (vLLM AWQ, Llama-3.3-70B)",
       "options": { "baseURL": "http://127.0.0.1:8011/v1", "apiKey": "EMPTY" },
       "models": {
-        "odin": { "name": "llama-3.3-70b-instruct-Q4_K_M.gguf", "tools": true }
+        "odin": { "name": "casperhansen/llama-3.3-70b-instruct-awq" }
       }
     },
-    // ===== vLLM agents (BF16) =====
+    // ===== vLLM agents (AWQ) =====
     "local_heimdall": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Heimdall 👁 — Guardian (vLLM BF16, Qwen2.5-3B)",
+      "name": "Heimdall 👁 — Guardian (vLLM AWQ, Qwen2.5-3B)",
       "options": { "baseURL": "http://127.0.0.1:8012/v1", "apiKey": "EMPTY" },
       "models": {
-        "heimdall": { "name": "Qwen/Qwen2.5-3B-Instruct", "tools": true }
+        "heimdall": { "name": "Qwen/Qwen2.5-3B-Instruct-AWQ" }
       }
     },
     "local_loki": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Loki 🧠 — Adversarial Intelligence (vLLM BF16, Qwen2.5-7B)",
+      "name": "Loki 🧠 — Adversarial Intelligence (vLLM AWQ, Qwen2.5-7B)",
       "options": { "baseURL": "http://127.0.0.1:8013/v1", "apiKey": "EMPTY" },
       "models": {
-        "loki": { "name": "Qwen/Qwen2.5-7B-Instruct", "tools": true }
+        "loki": { "name": "Qwen/Qwen2.5-7B-Instruct-AWQ" }
       }
     },
     "local_frigga": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Frigga 🌿 — Knowledge Curator (vLLM BF16, Qwen2.5-14B)",
+      "name": "Frigga 🌿 — Knowledge Curator (vLLM AWQ, Qwen2.5-14B)",
       "options": { "baseURL": "http://127.0.0.1:8014/v1", "apiKey": "EMPTY" },
       "models": {
-        "frigga": { "name": "Qwen/Qwen2.5-14B-Instruct", "tools": true }
+        "frigga": { "name": "Qwen/Qwen2.5-14B-Instruct-AWQ" }
       }
     },
     // ===== Cloud fallback =====
@@ -71,7 +67,7 @@
       "npm": "@ai-sdk/openai",
       "name": "Cloud Planner",
       "options": { "apiKey": "${OPENAI_API_KEY}" },
-      "models": { "planner": { "name": "${CLOUD_PLANNER_MODEL}", "tools": true } }
+      "models": { "planner": { "name": "${CLOUD_PLANNER_MODEL}" } }
     }
   },
 

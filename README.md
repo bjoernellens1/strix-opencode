@@ -34,18 +34,18 @@ This project runs a **6-agent local AI inference stack** on a single AMD Strix H
 
 | Agent | Role | Backend | Model | Context |
 |-------|------|---------|-------|---------|
-| **Thor** ⚡ | Primary Commander — planning, coordination, delegation | llama.cpp (GPU, GGUF) | Qwen2.5-14B-Instruct Q4_K_M | 64K |
-| **Valkyrie** 🛡 | Execution Specialist — code generation, tool use | llama.cpp (GPU, GGUF) | Qwen3-Coder-30B-A3B-Instruct Q4_K_M | 48K |
-| **Odin** 👁️ | Supreme Architect — escalation, deep review, architecture | llama.cpp (GPU, GGUF) | Llama-3.3-70B-Instruct Q4_K_M | 32K |
-| **Heimdall** 👁 | Guardian — fast validation, monitoring, utilities | vLLM (GPU, BF16) | Qwen2.5-3B-Instruct | 8K |
-| **Loki** 🧠 | Adversarial Intelligence — edge cases, creative challenges | vLLM (GPU, BF16) | Qwen2.5-7B-Instruct | 16K |
-| **Frigga** 🌿 | Knowledge Curator — documentation, context compression | vLLM (GPU, BF16) | Qwen2.5-14B-Instruct | 16K |
+| **Thor** ⚡ | Primary Commander — planning, coordination, delegation | vLLM (GPU, AWQ) | Qwen2.5-14B-Instruct-AWQ | 32K |
+| **Valkyrie** 🛡 | Execution Specialist — code generation, tool use | vLLM (GPU, AWQ) | Qwen3-Coder-30B-A3B-AWQ | 32K |
+| **Odin** 👁️ | Supreme Architect — escalation, deep review, architecture | vLLM (GPU, AWQ) | Llama-3.3-70B-Instruct-AWQ | 32K |
+| **Heimdall** 👁 | Guardian — fast validation, monitoring, utilities | vLLM (GPU, AWQ) | Qwen2.5-3B-Instruct-AWQ | 32K |
+| **Loki** 🧠 | Adversarial Intelligence — edge cases, creative challenges | vLLM (GPU, AWQ) | Qwen2.5-7B-Instruct-AWQ | 32K |
+| **Frigga** 🌿 | Knowledge Curator — documentation, context compression | vLLM (GPU, AWQ) | Qwen2.5-14B-Instruct-AWQ | 32K |
 
 **Key design decisions:**
-- **Phase 5 Hybrid Architecture** — llama.cpp GGUF Q4_K_M for main agents (Thor, Valkyrie, Odin), vLLM BF16 for utility agents (Heimdall, Loki, Frigga)
-- **All agents on GPU** — llama.cpp uses `-ngl 999 --flash-attn` for full GPU offload with ROCm
-- **Bifrost scheduler** — manages GPU memory by stopping conflicting agents (Odin stops Valkyrie)
-- **No quantization in vLLM** — AWQ, FP8, GPTQ all fail on gfx1151 (see [DECISIONS.md](DECISIONS.md))
+- **Phase 6 AWQ Architecture** — All 6 agents run on **vLLM** using **AWQ 4-bit** quantization.
+- **Optimized for gfx1151** — Uses specialized vLLM images (`kyuz0/vllm-therock-gfx1151`) to enable AWQ on RDNA 3.5.
+- **Bifrost scheduler** — Manages GPU memory by stopping conflicting agents (Odin stops Valkyrie).
+- **Sub-1s latency** — AWQ 4-bit provides interactive performance on shared UMA memory.
 - **6 agents, all GPU** — see [AGENTS.md](AGENTS.md) for detailed specs, escalation doctrine, and memory budget
 
 ---
@@ -62,16 +62,15 @@ This project runs a **6-agent local AI inference stack** on a single AMD Strix H
 │  Thor ⚡  │ Valkyrie │ Odin 👁️  │ Heimdall │ Loki 🧠  │  Frigga 🌿                  │
 │ Primary  │  🛡 Exec │ Architect│  👁 Guard│ Adversary│  Knowledge                  │
 │          │          │          │          │          │                              │
-│ ┌────────┤ ┌────────┤ ┌────────┤ ┌────────┤ ┌────────┤ ┌──────────────────────────┐│
-│ │llama   │ │llama   │ │llama   │ │vLLM    │ │vLLM    │ │vLLM :8014                ││
-│ │:8001   │ │:8002   │ │:8011   │ │:8012   │ │:8013   │ │14B GPU BF16              ││
-│ │14B GPU │ │30B GPU │ │70B GPU │ │3B GPU  │ │7B GPU  │ │                          ││
-│ │Q4_K_M  │ │Q4_K_M  │ │Q4_K_M  │ │BF16    │ │BF16    │ │                          ││
-│ └────────┘ └────────┘ └────────┘ └────────┘ └────────┘ └──────────────────────────┘│
-└────────────────────────────────────────────────────────────────────────────────────┘
-   GPU(~8GB) GPU(~17GB) GPU(~40GB)  GPU(~6GB)  GPU(~14GB)  GPU(~28GB)
-        └──── llama.cpp GGUF ────┘  └──────── vLLM BF16 ──────────┘
-                                    ↑ Bifrost scheduler manages profiles
+│ ┌────────┴──────────┴──────────┴──────────┴──────────┴──────────────────────────┐│
+│ │                                  vLLM Stack                                    ││
+│ │                            (GPU, AWQ 4-bit, BF16 KV)                           ││
+│ │           :8001 | :8002 | :8011 | :8012 | :8013 | :8014                        ││
+│ └──────────────────────────────────────┬─────────────────────────────────────────┘│
+└────────────────────────────────────────┴──────────────────────────────────────────┘
+                                         ↑
+                          Bifrost scheduler manages profiles
+                          (Starts/Stops agents to fit VRAM)
 ```
 
 ---
@@ -152,34 +151,19 @@ cd strix-opencode
 
 # 2. Set up environment
 cp .env.example .env
-# Edit .env — set HF_TOKEN for gated model downloads
+# Edit .env — set HF_TOKEN for gated model downloads (Llama-3.3, Qwen)
 
-# 3. Download GGUF models for llama.cpp agents (Thor, Valkyrie, Odin)
-mkdir -p models
-
-# Thor: Qwen2.5-14B (~8 GB)
-huggingface-cli download unsloth/Qwen2.5-14B-Instruct-GGUF \
-  qwen2.5-14b-instruct-q4_k_m.gguf --local-dir models
-
-# Valkyrie: Qwen3-Coder-30B (~17 GB)
-huggingface-cli download unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF \
-  Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf --local-dir models
-
-# Odin: Llama-3.3-70B (~40 GB)
-huggingface-cli download bartowski/Llama-3.3-70B-Instruct-GGUF \
-  llama-3.3-70b-instruct-Q4_K_M.gguf --local-dir models
-
-# 4. Start hybrid mode (recommended)
+# 3. Start Phase 6 (vLLM AWQ)
 ./scripts/up hybrid
 
-# 5. Verify health
+# 4. Verify health
 ./scripts/health
 
-# 6. Run OpenCode
+# 5. Run OpenCode
 opencode --config /path/to/strix-opencode/opencode/opencode.jsonc
 ```
 
-First start downloads vLLM models for utility agents (~48 GB total for Heimdall, Loki, Frigga). Subsequent starts use the HuggingFace cache.
+vLLM pulls models **automatically** on first run. Models are cached in `$HF_HOME` (default: `~/.cache/huggingface`). Total weight download is ~85 GB for all 6 agents.
 
 ---
 
@@ -204,14 +188,14 @@ First start downloads vLLM models for utility agents (~48 GB total for Heimdall,
 
 ## Agent Roles & Endpoints
 
-| Agent | Port | Default Model | Backend |
-|-------|------|---------------|---------|
-| Thor ⚡ | `http://127.0.0.1:8001/v1` | Qwen2.5-14B-Instruct Q4_K_M GGUF | llama.cpp (GPU) |
-| Valkyrie 🛡 | `http://127.0.0.1:8002/v1` | Qwen3-Coder-30B-A3B-Instruct Q4_K_M GGUF | llama.cpp (GPU) |
-| Odin 👁️ | `http://127.0.0.1:8011/v1` | Llama-3.3-70B-Instruct Q4_K_M GGUF | llama.cpp (GPU) |
-| Heimdall 👁 | `http://127.0.0.1:8012/v1` | Qwen/Qwen2.5-3B-Instruct | vLLM (GPU, BF16) |
-| Loki 🧠 | `http://127.0.0.1:8013/v1` | Qwen/Qwen2.5-7B-Instruct | vLLM (GPU, BF16) |
-| Frigga 🌿 | `http://127.0.0.1:8014/v1` | Qwen/Qwen2.5-14B-Instruct | vLLM (GPU, BF16) |
+| Agent | Port | Default Model (AWQ) | Backend |
+|-------|------|---------------------|---------|
+| Thor ⚡ | `http://127.0.0.1:8001/v1` | Qwen/Qwen2.5-14B-Instruct-AWQ | vLLM (GPU) |
+| Valkyrie 🛡 | `http://127.0.0.1:8002/v1` | QuantTrio/Qwen3-Coder-30B-A3B-Instruct-AWQ | vLLM (GPU) |
+| Odin 👁️ | `http://127.0.0.1:8011/v1` | casperhansen/llama-3.3-70b-instruct-awq | vLLM (GPU) |
+| Heimdall 👁 | `http://127.0.0.1:8012/v1` | Qwen/Qwen2.5-3B-Instruct-AWQ | vLLM (GPU) |
+| Loki 🧠 | `http://127.0.0.1:8013/v1` | Qwen/Qwen2.5-7B-Instruct-AWQ | vLLM (GPU) |
+| Frigga 🌿 | `http://127.0.0.1:8014/v1` | Qwen/Qwen2.5-14B-Instruct-AWQ | vLLM (GPU) |
 
 All endpoints serve an OpenAI-compatible `/v1` API.
 
@@ -437,19 +421,19 @@ Copy this file to `.opencode/` in any target project. Remove/raise limits when u
 
 ## Memory Budget
 
-### Phase 5 Hybrid GPU Allocation (128 GB shared UMA)
+### Phase 6 vLLM AWQ Allocation (128 GB shared UMA)
 
-All agents run on GPU via Bifrost scheduler which manages memory by stopping conflicting agents.
+All agents run on GPU via Bifrost scheduler which manages memory by stopping conflicting agents. AWQ 4-bit significantly reduces VRAM footprint compared to BF16.
 
-| Profile | Agents Running | Total VRAM |
-|---------|----------------|------------|
-| standard | Thor (~8) + Valkyrie (~17) | ~25 GB |
-| heimdall | Thor + Valkyrie + Heimdall (~6) | ~31 GB |
-| loki | Thor + Valkyrie + Loki (~14) | ~39 GB |
-| frigga | Thor + Valkyrie + Frigga (~28) | ~53 GB |
-| odin | Thor (~8) + Odin (~40) | ~48 GB |
+| Profile | Agents Running | Total VRAM (est) |
+|---------|----------------|------------------|
+| standard | Thor (~9) + Valkyrie (~18) | ~27 GB |
+| heimdall | Thor + Valkyrie + Heimdall (~3) | ~30 GB |
+| loki | Thor + Valkyrie + Loki (~6) | ~33 GB |
+| frigga | Thor + Valkyrie + Frigga (~9) | ~36 GB |
+| odin | Thor (~9) + Odin (~42) | ~51 GB |
 
-**Note:** Odin profile stops Valkyrie and utility agents to free GPU memory.
+**Note:** Odin profile stops Valkyrie to free VRAM. Utility agents can coexist with Thor+Valkyrie.
 
 > For detailed memory math, KV cache calculations, and phase evolution, see [DECISIONS.md](DECISIONS.md).
 > For agent specifications, escalation doctrine, and inter-agent communication, see [AGENTS.md](AGENTS.md).

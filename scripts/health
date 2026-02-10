@@ -19,7 +19,7 @@ function check() {
   echo ""
 }
 
-# Phase 6 full vLLM: All agents on vLLM BF16
+# Phase 6 full vLLM: All agents on vLLM AWQ
 check "${THOR_PORT:-8001}" "Thor ⚡ Primary Commander (vLLM)"
 check "${VALKYRIE_PORT:-8002}" "Valkyrie 🛡 Execution Specialist (vLLM)"
 check "${ODIN_PORT:-8011}" "Odin 👁️ Supreme Architect (vLLM)"
