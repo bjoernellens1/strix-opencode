@@ -160,7 +160,7 @@ cp .env.example .env
 ./scripts/health
 
 # 5. Run OpenCode
-opencode --config /path/to/strix-opencode/opencode/opencode.jsonc
+OPENCODE_CONFIG=/path/to/strix-opencode/opencode/opencode.jsonc opencode
 ```
 
 vLLM pulls models **automatically** on first run. Models are cached in `$HF_HOME` (default: `~/.cache/huggingface`). Total weight download is ~85 GB for all 6 agents.
