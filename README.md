@@ -34,19 +34,18 @@ This project runs a **6-agent local AI inference stack** on a single AMD Strix H
 
 | Agent | Role | Backend | Model | Context |
 |-------|------|---------|-------|---------|
-| **Thor** ⚡ | Primary Commander — planning, coordination, delegation | vLLM (GPU, AWQ) | Qwen2.5-14B-Instruct-AWQ | 32K |
-| **Valkyrie** 🛡 | Execution Specialist — code generation, tool use | vLLM (GPU, AWQ) | Qwen3-Coder-30B-A3B-AWQ | 32K |
-| **Odin** 👁️ | Supreme Architect — escalation, deep review, architecture | vLLM (GPU, AWQ) | Llama-3.3-70B-Instruct-AWQ | 32K |
-| **Heimdall** 👁 | Guardian — fast validation, monitoring, utilities | vLLM (GPU, AWQ) | Qwen2.5-3B-Instruct-AWQ | 32K |
-| **Loki** 🧠 | Adversarial Intelligence — edge cases, creative challenges | vLLM (GPU, AWQ) | Qwen2.5-7B-Instruct-AWQ | 32K |
-| **Frigga** 🌿 | Knowledge Curator — documentation, context compression | vLLM (GPU, AWQ) | Qwen2.5-14B-Instruct-AWQ | 32K |
+| **Thor** ⚡ | Primary Commander — planning, coordination, delegation | Ollama (GPU) | Qwen2.5-14B (Ollama) | 64K |
+| **Valkyrie** 🛡 | Execution Specialist — code generation, tool use | Ollama (GPU) | Qwen3-Coder-30B-A3B (Ollama) | 64K |
+| **Odin** 👁️ | Supreme Architect — escalation, deep review, architecture | Ollama (GPU) | Llama-3.3-70B (Ollama) | 64K |
+| **Heimdall** 👁 | Guardian — fast validation, monitoring, utilities | Ollama (GPU) | Qwen2.5-3B (Ollama) | 16K |
+| **Loki** 🧠 | Adversarial Intelligence — edge cases, creative challenges | Ollama (GPU) | Qwen2.5-7B (Ollama) | 32K |
+| **Frigga** 🌿 | Knowledge Curator — documentation, context compression | Ollama (GPU) | Qwen2.5-14B (Ollama) | 64K |
 
 **Key design decisions:**
-- **Phase 6 AWQ Architecture** — All 6 agents run on **vLLM** using **AWQ 4-bit** quantization.
-- **Optimized for gfx1151** — Uses specialized vLLM images (`kyuz0/vllm-therock-gfx1151`) to enable AWQ on RDNA 3.5.
-- **Bifrost scheduler** — Manages GPU memory by stopping conflicting agents (Odin stops Valkyrie).
-- **Sub-1s latency** — AWQ 4-bit provides interactive performance on shared UMA memory.
-- **6 agents, all GPU** — see [AGENTS.md](AGENTS.md) for detailed specs, escalation doctrine, and memory budget
+- **Ollama-first Architecture** — All 6 agents run on **Ollama** using the OpenAI-compatible API.
+- **Single Ollama daemon** — One server/port, minimal ops, Ollama handles loading/unloading.
+- **Concurrency tuned** — `OLLAMA_NUM_PARALLEL` and `OLLAMA_MAX_LOADED_MODELS` set for multiple simultaneous requests.
+- **6 agents, all GPU** — see [AGENTS.md](AGENTS.md) for detailed specs and roles
 
 ---
 
@@ -62,15 +61,12 @@ This project runs a **6-agent local AI inference stack** on a single AMD Strix H
 │  Thor ⚡  │ Valkyrie │ Odin 👁️  │ Heimdall │ Loki 🧠  │  Frigga 🌿                  │
 │ Primary  │  🛡 Exec │ Architect│  👁 Guard│ Adversary│  Knowledge                  │
 │          │          │          │          │          │                              │
-│ ┌────────┴──────────┴──────────┴──────────┴──────────┴──────────────────────────┐│
-│ │                                  vLLM Stack                                    ││
-│ │                            (GPU, AWQ 4-bit, BF16 KV)                           ││
-│ │           :8001 | :8002 | :8011 | :8012 | :8013 | :8014                        ││
-│ └──────────────────────────────────────┬─────────────────────────────────────────┘│
-└────────────────────────────────────────┴──────────────────────────────────────────┘
-                                         ↑
-                          Bifrost scheduler manages profiles
-                          (Starts/Stops agents to fit VRAM)
+│ ┌──────────────────────────────────────────────────────────────────────────────┐│
+│ │                               Ollama Server                                   ││
+│ │                        (GPU, OpenAI-compatible API)                           ││
+│ │                                 :11434                                        ││
+│ └──────────────────────────────────────────────────────────────────────────────┘│
+└───────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -123,9 +119,11 @@ strix-opencode/
 │   ├── hybrid.yml                             # Phase 5: llama.cpp (Thor/Valkyrie/Odin) + vLLM (utility)
 │   ├── gpu-all.yml                            # Phase 4: vLLM BF16 for all 6 agents
 │   ├── vllm.yml                               # GPU agents only: Thor + Valkyrie (vLLM)
+│   ├── ollama.yml                             # Ollama-first stack for all agents
 │   ├── cpu.yml                                # CPU agents: Odin + Heimdall + Loki + Frigga (llama.cpp)
 │   ├── fallback.vulkan-radv.orch.yml          # Legacy: llama.cpp orchestrator (Vulkan RADV)
 │   └── fallback.rocm-6.4.4-rocwmma.orch.yml  # Legacy: llama.cpp orchestrator (ROCm rocWMMA)
+├── ollama-modelfiles/                         # Modelfiles for 64K context variants
 ├── opencode/
 │   ├── opencode.jsonc                         # OpenCode provider/agent configuration
 │   └── oh-my-opencode/                        # Plugin (git submodule)
@@ -134,7 +132,8 @@ strix-opencode/
 │   ├── down                                   # Stop all services
 │   ├── health                                 # Check all 6 endpoints
 │   ├── benchmark                              # Compare Thor vs Valkyrie performance
-│   └── switch-orch                            # Switch orchestrator (vllm | cloud)
+│   ├── ollama-create                           # Create 64K Ollama variants
+│   └── switch-orch                            # Switch orchestrator (ollama | cloud)
 ├── models/                                    # GGUF files for llama.cpp (git-ignored)
 └── .opencode/
     └── oh-my-opencode.json                    # Template: agent maxTokens for local models
@@ -153,8 +152,8 @@ cd strix-opencode
 cp .env.example .env
 # Edit .env — set HF_TOKEN for gated model downloads (Llama-3.3, Qwen)
 
-# 3. Start Phase 6 (vLLM AWQ)
-./scripts/up hybrid
+# 3. Start Ollama-first stack
+./scripts/up ollama
 
 # 4. Verify health
 ./scripts/health
@@ -163,7 +162,7 @@ cp .env.example .env
 OPENCODE_CONFIG=/path/to/strix-opencode/opencode/opencode.jsonc opencode
 ```
 
-vLLM pulls models **automatically** on first run. Models are cached in `$HF_HOME` (default: `~/.cache/huggingface`). Total weight download is ~85 GB for all 6 agents.
+Ollama pulls models on first run. Models are cached in `OLLAMA_MODELS` (default: `~/.ollama`). Total weight depends on your selected tags/quantization.
 
 ---
 
@@ -171,7 +170,8 @@ vLLM pulls models **automatically** on first run. Models are cached in `$HF_HOME
 
 | Mode | Command | What starts |
 |------|---------|-------------|
-| **hybrid** (recommended) | `./scripts/up hybrid` | Thor + Valkyrie + Bifrost (llama.cpp GGUF + vLLM on-demand) |
+| **ollama** (recommended) | `./scripts/up ollama` | Single Ollama server (all agents via one port) |
+| **hybrid** (legacy) | `./scripts/up hybrid` | Thor + Valkyrie + Bifrost (llama.cpp GGUF + vLLM on-demand) |
 | **hybrid-no-bifrost** | `./scripts/up hybrid-no-bifrost` | Thor + Valkyrie only (no Bifrost scheduler) |
 | **gpu-all** | `./scripts/up gpu-all` | Phase 4: all 6 agents via vLLM BF16 + Bifrost |
 | **gpu** | `./scripts/up gpu` | Legacy: Thor + Valkyrie (vLLM BF16) |
@@ -188,14 +188,14 @@ vLLM pulls models **automatically** on first run. Models are cached in `$HF_HOME
 
 ## Agent Roles & Endpoints
 
-| Agent | Port | Default Model (AWQ) | Backend |
-|-------|------|---------------------|---------|
-| Thor ⚡ | `http://127.0.0.1:8001/v1` | Qwen/Qwen2.5-14B-Instruct-AWQ | vLLM (GPU) |
-| Valkyrie 🛡 | `http://127.0.0.1:8002/v1` | QuantTrio/Qwen3-Coder-30B-A3B-Instruct-AWQ | vLLM (GPU) |
-| Odin 👁️ | `http://127.0.0.1:8011/v1` | casperhansen/llama-3.3-70b-instruct-awq | vLLM (GPU) |
-| Heimdall 👁 | `http://127.0.0.1:8012/v1` | Qwen/Qwen2.5-3B-Instruct-AWQ | vLLM (GPU) |
-| Loki 🧠 | `http://127.0.0.1:8013/v1` | Qwen/Qwen2.5-7B-Instruct-AWQ | vLLM (GPU) |
-| Frigga 🌿 | `http://127.0.0.1:8014/v1` | Qwen/Qwen2.5-14B-Instruct-AWQ | vLLM (GPU) |
+| Agent | Endpoint | Default Model (Ollama) | Backend |
+|-------|----------|------------------------|---------|
+| Thor ⚡ | `http://127.0.0.1:11434/v1` | qwen2.5:14b-instruct-q4_K_M-64k | Ollama (GPU) |
+| Valkyrie 🛡 | `http://127.0.0.1:11434/v1` | qwen3-coder:30b-64k | Ollama (GPU) |
+| Odin 👁️ | `http://127.0.0.1:11434/v1` | llama3:70b-instruct-q4_K_M-64k | Ollama (GPU) |
+| Heimdall 👁 | `http://127.0.0.1:11434/v1` | qwen2.5:3b-instruct | Ollama (GPU) |
+| Loki 🧠 | `http://127.0.0.1:11434/v1` | qwen2.5:7b-instruct | Ollama (GPU) |
+| Frigga 🌿 | `http://127.0.0.1:11434/v1` | qwen2.5:14b-instruct-q4_K_M-64k | Ollama (GPU) |
 
 All endpoints serve an OpenAI-compatible `/v1` API.
 
@@ -212,42 +212,36 @@ export CLOUD_PLANNER_MODEL=gpt-5
 
 ./scripts/switch-orch cloud
 # To switch back:
-./scripts/switch-orch vllm
+./scripts/switch-orch ollama
 ```
 
 ---
 
 ## Model Download Notes
 
-### llama.cpp GGUF Models (Thor, Valkyrie, Odin)
+### Ollama Models (All Agents)
 
-GGUF files must be **pre-downloaded** into `./models/`:
+Ollama pulls models **automatically** on first run. Models are cached in `OLLAMA_MODELS` (default: `~/.ollama`).
+
+Recommended tags (match `.env.example`):
 
 ```bash
-mkdir -p models
-
-# Thor (Primary Commander): Qwen2.5-14B (~8 GB)
-huggingface-cli download unsloth/Qwen2.5-14B-Instruct-GGUF \
-  qwen2.5-14b-instruct-q4_k_m.gguf --local-dir models
-
-# Valkyrie (Execution Specialist): Qwen3-Coder-30B (~17 GB)
-huggingface-cli download unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF \
-  Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf --local-dir models
-
-# Odin (Supreme Architect): Llama-3.3-70B (~40 GB)
-huggingface-cli download bartowski/Llama-3.3-70B-Instruct-GGUF \
-  llama-3.3-70b-instruct-Q4_K_M.gguf --local-dir models
+ollama pull qwen2.5:14b-instruct-q4_K_M
+ollama pull qwen3-coder:30b
+ollama pull llama3:70b-instruct-q4_K_M
+ollama pull qwen2.5:3b-instruct
+ollama pull qwen2.5:7b-instruct
 ```
 
-Update the corresponding `*_GGUF` variables in `.env` if your filenames differ.
+### Context Length (64K variants)
 
-### vLLM Models (Heimdall, Loki, Frigga)
+Ollama’s OpenAI-compatible API doesn’t expose `num_ctx`, so use Modelfiles to bake context length:
 
-vLLM pulls HuggingFace models **automatically** on first run. Models are cached in `$HF_HOME` (default: `~/.cache/huggingface`).
+```bash
+./scripts/ollama-create
+```
 
-- Set `HF_TOKEN` in `.env` for gated models
-- First download: ~6 GB (Heimdall 3B) + ~14 GB (Loki 7B) + ~28 GB (Frigga 14B) = **~48 GB total**
-- Subsequent starts use the cache
+This creates `-64k` variants for the 14B, 30B, and 70B models (see `ollama-modelfiles/`).
 
 ---
 
@@ -259,23 +253,38 @@ All configurable values are in `.env` (copied from `.env.example`).
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `HF_TOKEN` | *(empty)* | HuggingFace token for gated models |
-| `HF_HOME` | `${HOME}/.cache/huggingface` | HuggingFace model cache |
-| `VLLM_CACHE` | `${HOME}/.cache/vllm` | vLLM runtime cache |
-| `LLAMA_MODELS_DIR` | `./models` | Directory containing GGUF files |
+| `OLLAMA_MODELS` | `${HOME}/.ollama` | Ollama model store (shared by all Ollama containers) |
+| `HF_TOKEN` | *(empty)* | HuggingFace token for gated models (legacy) |
+| `HF_HOME` | `${HOME}/.cache/huggingface` | HuggingFace model cache (legacy) |
+| `VLLM_CACHE` | `${HOME}/.cache/vllm` | vLLM runtime cache (legacy) |
+| `LLAMA_MODELS_DIR` | `./models` | Directory containing GGUF files (legacy) |
 
 ### Ports
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `THOR_PORT` | `8001` | Thor — vLLM primary commander |
-| `VALKYRIE_PORT` | `8002` | Valkyrie — vLLM execution specialist |
-| `ODIN_PORT` | `8011` | Odin — llama.cpp supreme architect |
-| `HEIMDALL_PORT` | `8012` | Heimdall — llama.cpp guardian |
-| `LOKI_PORT` | `8013` | Loki — llama.cpp adversarial intelligence |
-| `FRIGGA_PORT` | `8014` | Frigga — llama.cpp knowledge curator |
+| `THOR_PORT` | `8001` | Thor endpoint |
+| `VALKYRIE_PORT` | `8002` | Valkyrie endpoint |
+| `ODIN_PORT` | `8011` | Odin endpoint |
+| `HEIMDALL_PORT` | `8012` | Heimdall endpoint |
+| `LOKI_PORT` | `8013` | Loki endpoint |
+| `FRIGGA_PORT` | `8014` | Frigga endpoint |
 
-### GPU Agents (vLLM)
+### Ollama Settings
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OLLAMA_NUM_PARALLEL` | `2` | Concurrent requests per Ollama daemon |
+| `OLLAMA_MAX_LOADED_MODELS` | `1` | Max loaded models per Ollama daemon |
+| `OLLAMA_KEEP_ALIVE` | `5m` | Model keep-alive (warm cache window) |
+| `THOR_OLLAMA_MODEL` | `qwen2.5:14b-instruct-q4_K_M-64k` | Thor model tag |
+| `VALKYRIE_OLLAMA_MODEL` | `qwen3-coder:30b-64k` | Valkyrie model tag |
+| `ODIN_OLLAMA_MODEL` | `llama3:70b-instruct-q4_K_M-64k` | Odin model tag |
+| `HEIMDALL_OLLAMA_MODEL` | `qwen2.5:3b-instruct` | Heimdall model tag |
+| `LOKI_OLLAMA_MODEL` | `qwen2.5:7b-instruct` | Loki model tag |
+| `FRIGGA_OLLAMA_MODEL` | `qwen2.5:14b-instruct-q4_K_M-64k` | Frigga model tag |
+
+### GPU Agents (vLLM, legacy)
 
 > **Important:** `THOR_GPU_UTIL + VALKYRIE_GPU_UTIL` must be **<= 1.0**. Both share the same physical GPU memory on Strix Halo.
 
@@ -292,7 +301,7 @@ All configurable values are in `.env` (copied from `.env.example`).
 | `THOR_MAX_NUM_SEQS` | `4` | Max concurrent sequences (single-user) |
 | `VALKYRIE_MAX_NUM_SEQS` | `4` | Max concurrent sequences (single-user) |
 
-### CPU Agents (llama.cpp)
+### CPU Agents (llama.cpp, legacy)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -327,10 +336,11 @@ All scripts live in `scripts/` and are executable (`chmod +x`).
 Start the inference stack:
 
 ```bash
-./scripts/up              # Default: GPU agents only (Thor + Valkyrie)
-./scripts/up gpu          # Explicit: GPU agents only
-./scripts/up cpu          # CPU agents only (Odin + Heimdall + Loki + Frigga)
-./scripts/up full         # All 6 agents
+./scripts/up              # Default: Ollama-only stack
+./scripts/up ollama       # Ollama-first stack (single server)
+./scripts/up gpu          # Legacy: GPU agents only
+./scripts/up cpu          # Legacy: CPU agents only (Odin + Heimdall + Loki + Frigga)
+./scripts/up full         # Legacy: all 6 agents
 ./scripts/up hybrid-radv  # Legacy: vLLM + Vulkan RADV llama.cpp
 ./scripts/up hybrid-rocm  # Legacy: vLLM + ROCm llama.cpp
 ```
@@ -355,6 +365,14 @@ Check all 6 endpoints (queries `/v1/models` on each port):
 
 Outputs the model list from each service. Services that aren't running show "(not responding)" — this is expected when not using `full` mode.
 
+### `scripts/ollama-create`
+
+Create 64K context variants for the large models:
+
+```bash
+./scripts/ollama-create
+```
+
 ### `scripts/benchmark`
 
 Compare Thor and Valkyrie on real-world coding tasks:
@@ -368,7 +386,7 @@ Compare Thor and Valkyrie on real-world coding tasks:
 Switch the OpenCode primary agent backend:
 
 ```bash
-./scripts/switch-orch vllm   # Use local Thor (:8001)
+./scripts/switch-orch ollama # Use local Thor (:11434)
 ./scripts/switch-orch cloud  # Use cloud planner (requires OPENAI_API_KEY)
 ```
 
@@ -384,22 +402,17 @@ The file `opencode/opencode.jsonc` defines providers and agent-to-provider mappi
 
 | Provider ID | Norse Agent | Backend | Endpoint |
 |------------|-------------|---------|----------|
-| `local_thor` | Thor ⚡ | llama.cpp GPU | `http://127.0.0.1:8001/v1` |
-| `local_valkyrie` | Valkyrie 🛡 | llama.cpp GPU | `http://127.0.0.1:8002/v1` |
-| `local_odin` | Odin 👁️ | llama.cpp GPU | `http://127.0.0.1:8011/v1` |
-| `local_heimdall` | Heimdall 👁 | vLLM GPU | `http://127.0.0.1:8012/v1` |
-| `local_loki` | Loki 🧠 | vLLM GPU | `http://127.0.0.1:8013/v1` |
-| `local_frigga` | Frigga 🌿 | vLLM GPU | `http://127.0.0.1:8014/v1` |
+| `ollama_local` | Thor/Valkyrie/Odin/Heimdall/Loki/Frigga | Ollama GPU | `http://127.0.0.1:11434/v1` |
 | `cloud_planner` | — | OpenAI API | cloud |
 
 ### Agents
 
 | Agent | Role | Default Provider |
 |-------|------|-----------------|
-| `primary` | Thor — Primary Commander | `local_thor:thor` |
-| `coder` | Valkyrie — Execution Specialist | `local_valkyrie:valkyrie` |
-| `reviewer` | Odin — Supreme Architect | `local_odin:odin` |
-| `utility` | Heimdall — Guardian | `local_heimdall:heimdall` |
+| `primary` | Thor — Primary Commander | `ollama_local/qwen2.5:14b-instruct-q4_K_M-64k` |
+| `coder` | Valkyrie — Execution Specialist | `ollama_local/qwen3-coder:30b-64k` |
+| `reviewer` | Odin — Supreme Architect | `ollama_local/llama3:70b-instruct-q4_K_M-64k` |
+| `utility` | Heimdall — Guardian | `ollama_local/qwen2.5:3b-instruct` |
 
 > Note: Loki and Frigga don't have standard OpenCode agent mappings yet. See [AGENTS.md — Future Considerations](AGENTS.md#future-considerations) for routing plans.
 
@@ -419,11 +432,11 @@ Copy this file to `.opencode/` in any target project. Remove/raise limits when u
 
 ---
 
-## Memory Budget
+## Memory Budget (Legacy vLLM)
 
 ### Phase 6 vLLM AWQ Allocation (128 GB shared UMA)
 
-All agents run on GPU via Bifrost scheduler which manages memory by stopping conflicting agents. AWQ 4-bit significantly reduces VRAM footprint compared to BF16.
+Legacy vLLM profile memory estimates (kept for reference).
 
 | Profile | Agents Running | Total VRAM (est) |
 |---------|----------------|------------------|

@@ -26,8 +26,8 @@ logging.basicConfig(
 
 
 COMPOSE_PROJECT_DIR = "/app"
-COMPOSE_FILE = "/app/compose/hybrid.yml"
-COMPOSE_FILE_MOUNT_PATH = "/app/compose/hybrid.yml"
+COMPOSE_FILE = os.getenv("BIFROST_COMPOSE_FILE", "/app/compose/hybrid.yml")
+COMPOSE_FILE_MOUNT_PATH = COMPOSE_FILE
 ENV_FILE = "/app/.env"
 
 PROFILE_STANDARD = "standard"
@@ -38,11 +38,15 @@ ProfileName = Literal["standard", "heimdall", "loki", "frigga", "odin"]
 
 LLAMA_AGENTS: set[str] = set()
 VLLM_AGENTS: set[str] = {"thor", "valkyrie", "odin", "heimdall", "loki", "frigga"}
+OLLAMA_AGENTS: set[str] = {"thor", "valkyrie", "odin", "heimdall", "loki", "frigga"}
 
 
 def container_name(agent: str) -> str:
     if agent in LLAMA_AGENTS:
         return f"llama_{agent}"
+    backend = os.getenv("BIFROST_BACKEND", "vllm").lower()
+    if backend == "ollama" and agent in OLLAMA_AGENTS:
+        return f"ollama_{agent}"
     return f"vllm_{agent}"
 
 

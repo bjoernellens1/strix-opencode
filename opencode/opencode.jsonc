@@ -7,104 +7,43 @@
   "share": "auto",
 
   // Default model
-  "model": "local_thor/Qwen/Qwen2.5-14B-Instruct-AWQ",
+  "model": "ollama_local/qwen2.5:14b-instruct-q4_K_M-64k",
 
   "provider": {
-    "local_thor": {
+    "ollama_local": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Thor — vLLM (OpenAI-compatible)",
+      "name": "Ollama (OpenAI-compatible)",
       "options": {
-        "baseURL": "http://127.0.0.1:8001/v1",
+        "baseURL": "http://127.0.0.1:11434/v1",
         "apiKey": "EMPTY"
       },
       "models": {
-        "Qwen/Qwen2.5-14B-Instruct-AWQ": {
-          "name": "Thor ⚡ (Qwen2.5-14B AWQ)",
+        "qwen2.5:14b-instruct-q4_K_M-64k": {
+          "name": "Qwen2.5-14B Ollama (64K)",
           "tool_call": true,
           "temperature": true,
-          "limit": { "context": 32768, "output": 4096 }
-        }
-      }
-    },
-
-    "local_valkyrie": {
-      "npm": "@ai-sdk/openai-compatible",
-      "name": "Valkyrie — vLLM (OpenAI-compatible)",
-      "options": {
-        "baseURL": "http://127.0.0.1:8002/v1",
-        "apiKey": "EMPTY"
-      },
-      "models": {
-        "QuantTrio/Qwen3-Coder-30B-A3B-Instruct-AWQ": {
-          "name": "Valkyrie 🛡 (Qwen3-Coder-30B A3B AWQ)",
+          "limit": { "context": 65536, "output": 4096 }
+        },
+        "qwen3-coder:30b-64k": {
+          "name": "Valkyrie 🛡 (Qwen3-Coder-30B Ollama)",
           "tool_call": true,
           "temperature": true,
-          "limit": { "context": 32768, "output": 4096 }
-        }
-      }
-    },
-
-    "local_odin": {
-      "npm": "@ai-sdk/openai-compatible",
-      "name": "Odin — vLLM (OpenAI-compatible)",
-      "options": {
-        "baseURL": "http://127.0.0.1:8011/v1",
-        "apiKey": "EMPTY"
-      },
-      "models": {
-        "casperhansen/llama-3.3-70b-instruct-awq": {
-          "name": "Odin 👁️ (Llama-3.3-70B AWQ)",
+          "limit": { "context": 65536, "output": 4096 }
+        },
+        "llama3:70b-instruct-q4_K_M-64k": {
+          "name": "Odin 👁️ (Llama-3-70B Ollama)",
           "tool_call": true,
           "temperature": true,
-          "limit": { "context": 32768, "output": 4096 }
-        }
-      }
-    },
-
-    "local_heimdall": {
-      "npm": "@ai-sdk/openai-compatible",
-      "name": "Heimdall — vLLM (OpenAI-compatible)",
-      "options": {
-        "baseURL": "http://127.0.0.1:8012/v1",
-        "apiKey": "EMPTY"
-      },
-      "models": {
-        "Qwen/Qwen2.5-3B-Instruct-AWQ": {
-          "name": "Heimdall 👁 (Qwen2.5-3B AWQ)",
+          "limit": { "context": 65536, "output": 4096 }
+        },
+        "qwen2.5:3b-instruct": {
+          "name": "Heimdall 👁 (Qwen2.5-3B Ollama)",
           "tool_call": true,
           "temperature": true,
-          "limit": { "context": 32768, "output": 4096 }
-        }
-      }
-    },
-
-    "local_loki": {
-      "npm": "@ai-sdk/openai-compatible",
-      "name": "Loki — vLLM (OpenAI-compatible)",
-      "options": {
-        "baseURL": "http://127.0.0.1:8013/v1",
-        "apiKey": "EMPTY"
-      },
-      "models": {
-        "Qwen/Qwen2.5-7B-Instruct-AWQ": {
-          "name": "Loki 🧠 (Qwen2.5-7B AWQ)",
-          "tool_call": true,
-          "temperature": true,
-          "limit": { "context": 32768, "output": 4096 }
-        }
-      }
-    },
-
-    "local_frigga": {
-      "npm": "@ai-sdk/openai-compatible",
-      "name": "Frigga — vLLM (OpenAI-compatible)",
-      "options": {
-        "baseURL": "http://127.0.0.1:8014/v1",
-        "apiKey": "EMPTY"
-      },
-      "models": {
-        "Qwen/Qwen2.5-14B-Instruct-AWQ": {
-          "name": "Frigga 🌿 (Qwen2.5-14B AWQ)",
+          "limit": { "context": 16384, "output": 4096 }
+        },
+        "qwen2.5:7b-instruct": {
+          "name": "Loki 🧠 (Qwen2.5-7B Ollama)",
           "tool_call": true,
           "temperature": true,
           "limit": { "context": 32768, "output": 4096 }
@@ -135,7 +74,7 @@
   "agent": {
     "primary":  {
       "mode": "primary",
-      "model": "local_thor/Qwen/Qwen2.5-14B-Instruct-AWQ",
+      "model": "ollama_local/qwen2.5:14b-instruct-q4_K_M-64k",
       "description": "Primary commander: planning, coordination, delegation.",
       "prompt": "Tool calling rules: Only call tools that are explicitly available. Do not invent tools or task names. If you decide to use the Task tool, you MUST include `subagent_type` with one of: primary, coder, reviewer, utility, loki, frigga plus a clear `prompt` and optional `description`. Example Task call: {\"subagent_type\":\"utility\",\"description\":\"repo overview\",\"prompt\":\"Provide a high-level repo overview\"}. If unsure, respond in natural language without tools.",
       "tools": {
@@ -150,7 +89,7 @@
     },
     "coder":    {
       "mode": "subagent",
-      "model": "local_valkyrie/QuantTrio/Qwen3-Coder-30B-A3B-Instruct-AWQ",
+      "model": "ollama_local/qwen3-coder:30b-64k",
       "description": "Execution specialist: coding, refactors, implementation.",
       "prompt": "Tool calling rules: Only call tools that are explicitly available. Do not invent tools or task names. If you use the Task tool, include `subagent_type` (primary|coder|reviewer|utility|loki|frigga), plus `prompt` and optional `description`.",
       "tools": {
@@ -166,7 +105,7 @@
     },
     "reviewer": {
       "mode": "subagent",
-      "model": "local_odin/casperhansen/llama-3.3-70b-instruct-awq",
+      "model": "ollama_local/llama3:70b-instruct-q4_K_M-64k",
       "description": "Supreme architect: deep review, architecture, correctness.",
       "prompt": "Tool calling rules: Only call tools that are explicitly available. Do not invent tools or task names. If you use the Task tool, include `subagent_type` (primary|coder|reviewer|utility|loki|frigga), plus `prompt` and optional `description`.",
       "tools": {
@@ -180,7 +119,7 @@
     },
     "utility":  {
       "mode": "subagent",
-      "model": "local_heimdall/Qwen/Qwen2.5-3B-Instruct-AWQ",
+      "model": "ollama_local/qwen2.5:3b-instruct",
       "description": "Guardian: fast validation, checks, monitoring.",
       "prompt": "Tool calling rules: Only call tools that are explicitly available. Do not invent tools or task names. If you use the Task tool, include `subagent_type` (primary|coder|reviewer|utility|loki|frigga), plus `prompt` and optional `description`.",
       "tools": {
@@ -193,7 +132,7 @@
     },
     "loki":   {
       "mode": "subagent",
-      "model": "local_loki/Qwen/Qwen2.5-7B-Instruct-AWQ",
+      "model": "ollama_local/qwen2.5:7b-instruct",
       "description": "Adversarial intelligence: edge cases, counterexamples.",
       "prompt": "Tool calling rules: Only call tools that are explicitly available. Do not invent tools or task names. If you use the Task tool, include `subagent_type` (primary|coder|reviewer|utility|loki|frigga), plus `prompt` and optional `description`.",
       "tools": {
@@ -205,7 +144,7 @@
     },
     "frigga": {
       "mode": "subagent",
-      "model": "local_frigga/Qwen/Qwen2.5-14B-Instruct-AWQ",
+      "model": "ollama_local/qwen2.5:14b-instruct-q4_K_M-64k",
       "description": "Knowledge curator: documentation, summarization.",
       "prompt": "Tool calling rules: Only call tools that are explicitly available. Do not invent tools or task names. If you use the Task tool, include `subagent_type` (primary|coder|reviewer|utility|loki|frigga), plus `prompt` and optional `description`.",
       "tools": {

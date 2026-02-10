@@ -37,6 +37,7 @@ class TestComposeFiles:
         "compose/hybrid.yml",
         "compose/gpu-all.yml",
         "compose/vllm.yml",
+        "compose/ollama.yml",
         "compose/cpu.yml",
     ])
     def test_compose_config_valid(self, compose_file):

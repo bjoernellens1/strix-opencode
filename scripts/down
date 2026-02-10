@@ -14,6 +14,7 @@ $COMPOSE -f compose/gpu-all.yml \
   down || true
 # Legacy modes
 $COMPOSE -f compose/vllm.yml down || true
+$COMPOSE -f compose/ollama.yml down || true
 $COMPOSE -f compose/cpu.yml down || true
 $COMPOSE -f compose/fallback.vulkan-radv.orch.yml down || true
 $COMPOSE -f compose/fallback.rocm-6.4.4-rocwmma.orch.yml down || true

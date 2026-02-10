@@ -9,6 +9,7 @@ from app import (
     env_int,
     LLAMA_AGENTS,
     VLLM_AGENTS,
+    OLLAMA_AGENTS,
     PROFILE_ON_DEMAND,
     MANAGED_AGENTS,
 )
@@ -24,6 +25,11 @@ class TestHelpers:
     def test_container_name_vllm(self):
         for agent in VLLM_AGENTS:
             assert container_name(agent) == f"vllm_{agent}"
+
+    def test_container_name_ollama(self, monkeypatch):
+        monkeypatch.setenv("BIFROST_BACKEND", "ollama")
+        for agent in OLLAMA_AGENTS:
+            assert container_name(agent) == f"ollama_{agent}"
 
     def test_env_int_default(self, monkeypatch):
         monkeypatch.delenv("TEST_VAR", raising=False)

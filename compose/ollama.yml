@@ -1,0 +1,33 @@
+# Single Ollama server (OpenAI-compatible API)
+#
+# One daemon, one port. Ollama handles model loading/unloading and concurrency.
+
+services:
+  ollama:
+    build:
+      context: .
+      dockerfile: compose/ollama.toolbox.Dockerfile
+      args:
+        BASE_IMAGE: ${OLLAMA_TOOLBOX_IMAGE:-docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.1-rocwmma}
+    image: strix-ollama-toolbox:rocm
+    container_name: ollama
+    network_mode: host
+    devices: ["/dev/kfd", "/dev/dri"]
+    security_opt: ["seccomp=unconfined"]
+    group_add: ["video"]
+    environment:
+      - HSA_OVERRIDE_GFX_VERSION=11.5.1
+      - OLLAMA_HOST=0.0.0.0:${OLLAMA_PORT:-11434}
+      - OLLAMA_NUM_PARALLEL=${OLLAMA_NUM_PARALLEL:-4}
+      - OLLAMA_MAX_LOADED_MODELS=${OLLAMA_MAX_LOADED_MODELS:-4}
+      - OLLAMA_KEEP_ALIVE=${OLLAMA_KEEP_ALIVE:-5m}
+    volumes:
+      - ${OLLAMA_MODELS:-/home/bjoern/.ollama}:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:${OLLAMA_PORT:-11434}/v1/models || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 120
+      start_period: 60s
+    command: >
+      ollama serve
