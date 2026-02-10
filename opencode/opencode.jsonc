@@ -1,73 +1,219 @@
 {
   "$schema": "https://opencode.ai/config.json",
 
-  "plugin": [
-    "./oh-my-opencode"
-  ],
+  // Plugins disabled for now (no oh-my-opencode)
+  "plugin": [],
+  "autoupdate": true,
+  "share": "auto",
+
+  // Default model
+  "model": "local_thor/Qwen/Qwen2.5-14B-Instruct-AWQ",
 
   "provider": {
     "local_thor": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Thor ⚡ — Primary Commander (GPU, Qwen2.5-14B)",
-      "options": { "baseURL": "http://127.0.0.1:8001/v1", "apiKey": "EMPTY" },
+      "name": "Thor — vLLM (OpenAI-compatible)",
+      "options": {
+        "baseURL": "http://127.0.0.1:8001/v1",
+        "apiKey": "EMPTY"
+      },
       "models": {
-        "thor": { "name": "Qwen/Qwen2.5-14B-Instruct", "tools": true }
+        "Qwen/Qwen2.5-14B-Instruct-AWQ": {
+          "name": "Thor ⚡ (Qwen2.5-14B AWQ)",
+          "tool_call": true,
+          "temperature": true,
+          "limit": { "context": 32768, "output": 4096 }
+        }
       }
     },
+
     "local_valkyrie": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Valkyrie 🛡 — Execution Specialist (GPU, Qwen3-Coder-30B)",
-      "options": { "baseURL": "http://127.0.0.1:8002/v1", "apiKey": "EMPTY" },
+      "name": "Valkyrie — vLLM (OpenAI-compatible)",
+      "options": {
+        "baseURL": "http://127.0.0.1:8002/v1",
+        "apiKey": "EMPTY"
+      },
       "models": {
-        "valkyrie": { "name": "Qwen/Qwen3-Coder-30B-A3B-Instruct", "tools": true }
+        "QuantTrio/Qwen3-Coder-30B-A3B-Instruct-AWQ": {
+          "name": "Valkyrie 🛡 (Qwen3-Coder-30B A3B AWQ)",
+          "tool_call": true,
+          "temperature": true,
+          "limit": { "context": 32768, "output": 4096 }
+        }
       }
     },
+
     "local_odin": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Odin 👁️ — Supreme Architect (CPU, Llama-3.3-70B)",
-      "options": { "baseURL": "http://127.0.0.1:8011/v1", "apiKey": "EMPTY" },
+      "name": "Odin — vLLM (OpenAI-compatible)",
+      "options": {
+        "baseURL": "http://127.0.0.1:8011/v1",
+        "apiKey": "EMPTY"
+      },
       "models": {
-        "odin": { "name": "llama-3.3-70b-instruct", "tools": true }
+        "casperhansen/llama-3.3-70b-instruct-awq": {
+          "name": "Odin 👁️ (Llama-3.3-70B AWQ)",
+          "tool_call": true,
+          "temperature": true,
+          "limit": { "context": 32768, "output": 4096 }
+        }
       }
     },
+
     "local_heimdall": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Heimdall 👁 — Guardian (CPU, Qwen2.5-3B)",
-      "options": { "baseURL": "http://127.0.0.1:8012/v1", "apiKey": "EMPTY" },
+      "name": "Heimdall — vLLM (OpenAI-compatible)",
+      "options": {
+        "baseURL": "http://127.0.0.1:8012/v1",
+        "apiKey": "EMPTY"
+      },
       "models": {
-        "heimdall": { "name": "qwen2.5-3b-instruct", "tools": true }
+        "Qwen/Qwen2.5-3B-Instruct-AWQ": {
+          "name": "Heimdall 👁 (Qwen2.5-3B AWQ)",
+          "tool_call": true,
+          "temperature": true,
+          "limit": { "context": 32768, "output": 4096 }
+        }
       }
     },
+
     "local_loki": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Loki 🧠 — Adversarial Intelligence (CPU, Qwen2.5-7B)",
-      "options": { "baseURL": "http://127.0.0.1:8013/v1", "apiKey": "EMPTY" },
+      "name": "Loki — vLLM (OpenAI-compatible)",
+      "options": {
+        "baseURL": "http://127.0.0.1:8013/v1",
+        "apiKey": "EMPTY"
+      },
       "models": {
-        "loki": { "name": "qwen2.5-7b-instruct", "tools": true }
+        "Qwen/Qwen2.5-7B-Instruct-AWQ": {
+          "name": "Loki 🧠 (Qwen2.5-7B AWQ)",
+          "tool_call": true,
+          "temperature": true,
+          "limit": { "context": 32768, "output": 4096 }
+        }
       }
     },
+
     "local_frigga": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Frigga 🌿 — Knowledge Curator (CPU, Qwen2.5-14B)",
-      "options": { "baseURL": "http://127.0.0.1:8014/v1", "apiKey": "EMPTY" },
+      "name": "Frigga — vLLM (OpenAI-compatible)",
+      "options": {
+        "baseURL": "http://127.0.0.1:8014/v1",
+        "apiKey": "EMPTY"
+      },
       "models": {
-        "frigga": { "name": "qwen2.5-14b-instruct", "tools": true }
+        "Qwen/Qwen2.5-14B-Instruct-AWQ": {
+          "name": "Frigga 🌿 (Qwen2.5-14B AWQ)",
+          "tool_call": true,
+          "temperature": true,
+          "limit": { "context": 32768, "output": 4096 }
+        }
       }
     },
+
     "cloud_planner": {
       "npm": "@ai-sdk/openai",
       "name": "Cloud Planner",
-      "options": { "apiKey": "${OPENAI_API_KEY}" },
-      "models": { "planner": { "name": "${CLOUD_PLANNER_MODEL}", "tools": true } }
+      "options": { "apiKey": "{env:OPENAI_API_KEY}" },
+      "models": {
+        "{env:CLOUD_PLANNER_MODEL}": { "name": "Cloud Planner ({env:CLOUD_PLANNER_MODEL})" }
+      }
     }
   },
 
+  // MCP servers (Model Context Protocol). Add/enable as needed.
+  // Example:
+  // "mcp": {
+  //   "filesystem": {
+  //     "type": "local",
+  //     "command": ["mcp-server-filesystem", "--root", "{cwd}"],
+  //     "enabled": true
+  //   }
+  // },
+
   "agent": {
-    "primary":  { "mode": "primary",  "model": "local_thor:thor" },
-    "coder":    { "mode": "subagent", "model": "local_valkyrie:valkyrie" },
-    "reviewer": { "mode": "subagent", "model": "local_odin:odin" },
-    "utility":  { "mode": "subagent", "model": "local_heimdall:heimdall" },
-    "loki":     { "mode": "subagent", "model": "local_loki:loki" },
-    "frigga":   { "mode": "subagent", "model": "local_frigga:frigga" }
+    "primary":  {
+      "mode": "primary",
+      "model": "local_thor/Qwen/Qwen2.5-14B-Instruct-AWQ",
+      "description": "Primary commander: planning, coordination, delegation.",
+      "prompt": "Tool calling rules: Only call tools that are explicitly available. Do not invent tools or task names. If you decide to use the Task tool, you MUST include `subagent_type` with one of: primary, coder, reviewer, utility, loki, frigga plus a clear `prompt` and optional `description`. Example Task call: {\"subagent_type\":\"utility\",\"description\":\"repo overview\",\"prompt\":\"Provide a high-level repo overview\"}. If unsure, respond in natural language without tools.",
+      "tools": {
+        "task": true,
+        "read": true,
+        "glob": true,
+        "grep": true,
+        "webfetch": true,
+        "websearch": true,
+        "codesearch": true
+      }
+    },
+    "coder":    {
+      "mode": "subagent",
+      "model": "local_valkyrie/QuantTrio/Qwen3-Coder-30B-A3B-Instruct-AWQ",
+      "description": "Execution specialist: coding, refactors, implementation.",
+      "prompt": "Tool calling rules: Only call tools that are explicitly available. Do not invent tools or task names. If you use the Task tool, include `subagent_type` (primary|coder|reviewer|utility|loki|frigga), plus `prompt` and optional `description`.",
+      "tools": {
+        "read": true,
+        "glob": true,
+        "grep": true,
+        "write": true,
+        "edit": true,
+        "bash": true,
+        "lsp": true,
+        "codesearch": true
+      }
+    },
+    "reviewer": {
+      "mode": "subagent",
+      "model": "local_odin/casperhansen/llama-3.3-70b-instruct-awq",
+      "description": "Supreme architect: deep review, architecture, correctness.",
+      "prompt": "Tool calling rules: Only call tools that are explicitly available. Do not invent tools or task names. If you use the Task tool, include `subagent_type` (primary|coder|reviewer|utility|loki|frigga), plus `prompt` and optional `description`.",
+      "tools": {
+        "read": true,
+        "glob": true,
+        "grep": true,
+        "codesearch": true,
+        "websearch": true,
+        "webfetch": true
+      }
+    },
+    "utility":  {
+      "mode": "subagent",
+      "model": "local_heimdall/Qwen/Qwen2.5-3B-Instruct-AWQ",
+      "description": "Guardian: fast validation, checks, monitoring.",
+      "prompt": "Tool calling rules: Only call tools that are explicitly available. Do not invent tools or task names. If you use the Task tool, include `subagent_type` (primary|coder|reviewer|utility|loki|frigga), plus `prompt` and optional `description`.",
+      "tools": {
+        "read": true,
+        "glob": true,
+        "grep": true,
+        "webfetch": true,
+        "websearch": true
+      }
+    },
+    "loki":   {
+      "mode": "subagent",
+      "model": "local_loki/Qwen/Qwen2.5-7B-Instruct-AWQ",
+      "description": "Adversarial intelligence: edge cases, counterexamples.",
+      "prompt": "Tool calling rules: Only call tools that are explicitly available. Do not invent tools or task names. If you use the Task tool, include `subagent_type` (primary|coder|reviewer|utility|loki|frigga), plus `prompt` and optional `description`.",
+      "tools": {
+        "read": true,
+        "glob": true,
+        "grep": true,
+        "websearch": true
+      }
+    },
+    "frigga": {
+      "mode": "subagent",
+      "model": "local_frigga/Qwen/Qwen2.5-14B-Instruct-AWQ",
+      "description": "Knowledge curator: documentation, summarization.",
+      "prompt": "Tool calling rules: Only call tools that are explicitly available. Do not invent tools or task names. If you use the Task tool, include `subagent_type` (primary|coder|reviewer|utility|loki|frigga), plus `prompt` and optional `description`.",
+      "tools": {
+        "read": true,
+        "glob": true,
+        "grep": true,
+        "webfetch": true
+      }
+    }
   }
 }

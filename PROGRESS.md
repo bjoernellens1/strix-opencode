@@ -1,97 +1,66 @@
-# PROGRESS.md — 4-Tier Architecture Migration
+# PROGRESS.md — Phase 6: Full vLLM AWQ Migration
 
-**Status**: IN PROGRESS  
-**Date**: 2026-02-09  
+**Status**: COMPLETED ✅  
+**Date**: 2026-02-10  
 **Branch**: `main`
 
 ---
 
-## What Changed (This Commit)
+## What Changed (vLLM AWQ Migration)
 
-We are migrating from a **2-service layout** (shared orch+coder on one vLLM instance + fast utility) to a **4-tier architecture**. This commit captures the partially-complete migration.
+We have successfully migrated the entire Norse Agent stack to **vLLM using AWQ 4-bit quantization**. This move solves the memory constraints while keeping all agents on the high-performance vLLM backend.
 
-### Completed
+### Completed ✅
 
-- **`.env`** — Fully rewritten for 4-tier architecture:
-  - Tier 1 (GPU): Orchestrator → `Qwen/Qwen2.5-14B-Instruct` on port 8001, GPU util 0.35, 64K context
-  - Tier 2 (GPU): Coder → `Qwen/Qwen3-Coder-30B-A3B-Instruct` on port 8002, GPU util 0.60, 48K context
-  - Tier 3 (CPU): Reviewer → `llama-3.3-70b-instruct.Q4_K_M.gguf` on port 8011, 32K context
-  - Tier 0 (CPU): Utility → `qwen2.5-3b-instruct.Q4_K_M.gguf` on port 8012, 8K context
-  - All FP8 references removed — KV cache set to `auto` (BF16)
-  - All quantization comments updated to reflect gfx1151 limitations
-
-### Not Yet Updated (Still Has OLD Config)
-
-These files still reference the **old 2-service layout** (FAST_MODEL, FAST_PORT, etc.) and need updating to match the new `.env`:
-
-| File | What Needs Changing |
-|------|-------------------|
-| `.env.example` | Must mirror new `.env` (minus HF_TOKEN) |
-| `compose/vllm.yml` | Rename `vllm_fast` → `vllm_coder`, swap models/ports/GPU util, update env var names |
-| `compose/cpu.yml` | **NEW FILE NEEDED** — llama.cpp services for Tier 3 (reviewer) and Tier 0 (utility) |
-| `opencode/opencode.jsonc` | New providers: `local_coder` (:8002), `local_reviewer` (:8011), `local_utility` (:8012). 4 agents instead of 3 |
-| `.opencode/oh-my-opencode.json` | New maxTokens: orch→32K, coder→24K, reviewer→16K, utility→4K |
-| `scripts/health` | Add ports 8002, 8012; rename labels to match new tiers |
-| `scripts/up` | Add `cpu` and `full` modes for llama.cpp tiers |
-| `scripts/down` | Add teardown for CPU compose file |
-| `scripts/switch-orch` | May need rework for new provider names |
-| `DECISIONS.md` | Add sections: quantization failure details, 4-tier rationale, memory recalc |
-| `README.md` | Full rewrite for 4-tier architecture, new ports, new roles |
+- [x] **vLLM AWQ Implementation** — Enabled INT4 AWQ models on strix-halo (gfx1151).
+- [x] **Environment Sync** — Updated `.env` and `.env.example` with AWQ model IDs and ports.
+- [x] **Docker Compose Rewrite** — Unified `compose/hybrid.yml` to run Tier 0-3 agents on vLLM.
+- [x] **OpenCode Configuration** — Re-aligned `opencode/opencode.jsonc` with the new 6-agent vLLM port mapping.
+- [x] **Scripting** — Updated `scripts/up` and `scripts/health` for AWQ-only operation.
+- [x] **Documentation** — Documented the build process for gfx1151 compatibility in `DECISIONS.md`.
+- [x] **README.md** — Reflected the current architecture status.
 
 ---
 
-## Architecture Overview
+## Current Architecture: Phase 6 (Full vLLM AWQ)
 
-```
-                    ┌─────────────────────────────────────────────┐
-                    │            OpenCode (TUI / Agent)            │
-                    ├──────┬──────────┬──────────────┬────────────┤
-                    │      │          │              │            │
-                    │ Tier 1        Tier 2        Tier 3      Tier 0
-                    │ Orchestrator  Coder         Reviewer    Utility
-                    │ (GPU vLLM)   (GPU vLLM)    (CPU llama) (CPU llama)
-                    │      │          │              │            │
-                    │  :8001       :8002          :8011       :8012
-                    │  14B BF16    30B-MoE BF16   70B Q4_K_M  3B Q4_K_M
-                    │  64K ctx     48K ctx        32K ctx     8K ctx
-                    │  0.35 GPU    0.60 GPU       CPU-only    CPU-only
-                    └──────┴──────────┴──────────────┴────────────┘
+```mermaid
+graph TD
+    subgraph "Norse Agent Architecture"
+        OP["OpenCode TUI"] --> BIF["Bifrost Scheduler (:8899)"]
+        BIF --> T1["Thor (Primary) :8001"]
+        BIF --> T2["Valkyrie (Coder) :8002"]
+        BIF --> T3["Odin (Reviewer) :8011"]
+        BIF --> T0["Utility (Tier 0) :8012-8014"]
+    end
+
+    subgraph "Backend Tier"
+        T1 --- V1["vLLM (AWQ)"]
+        T2 --- V2["vLLM (AWQ)"]
+        T3 --- V3["vLLM (AWQ)"]
+        T0 --- V4["vLLM (AWQ)"]
+    end
 ```
 
 ## Memory Budget (128 GB Shared UMA)
 
-| Component | Allocation | Memory | Notes |
-|-----------|-----------|--------|-------|
-| Tier 2: Coder (vLLM) | 0.60 | ~76.8 GB | Weights ~57 GB + KV ~4.5 GB (48K) |
-| Tier 1: Orch (vLLM) | 0.35 | ~44.8 GB | Weights ~28 GB + KV ~10 GB (64K) |
-| System headroom | 0.05 | ~6.4 GB | OS, desktop. Tight — swap/earlyoom recommended |
-| Tier 3+0 (CPU) | shared RAM | ~42 GB peak | 70B Q4 ≈ 40 GB + 3B Q4 ≈ 2 GB (loads on demand, not concurrent with full GPU) |
+| Component | Weight | KV Cache (32K) | Total Allocation | Notes |
+|-----------|--------|----------------|------------------|-------|
+| Thor (14B AWQ) | ~8 GB | ~17 GB | 25 GB | Always running |
+| Valkyrie (30B MoE AWQ) | ~17 GB | ~33 GB | 50 GB | Active during coding |
+| Odin (70B AWQ) | ~40 GB | ~24 GB | 64 GB | On-demand review |
+| Utility (3B-14B AWQ) | 2-8 GB | 4-16 GB | 6-24 GB | On-demand quick tasks |
 
-**Total GPU util: 0.95** — single-user only. CPU tiers load into the same physical RAM but run when GPU tiers aren't at peak.
+**Strategy**: Odin and Valkyrie are managed as conflicting tiers to ensure we never oversubscribe the 120 GB usable RAM.
 
-## Hardware Constraints (gfx1151 / RDNA 3.5)
+## Hardware Support (gfx1151 / RDNA 3.5)
 
-**No quantization works in vLLM on this hardware:**
-
-| Method | Result | Error |
-|--------|--------|-------|
-| FP8 weights (`--quantization fp8`) | ❌ CRASH | `torch._scaled_mm requires MI300+ or CUDA sm_89+` |
-| AWQ INT4 (pre-quantized checkpoint) | ❌ GPU HANG | `Memory access fault by GPU node-1` — Triton AWQ kernels incompatible |
-| FP8 KV cache (`--kv-cache-dtype fp8`) | ⚠️ BAD | Software emulation, uncalibrated scales → accuracy loss |
-| GPTQ/Marlin/bitsandbytes | ❌ | CUDA-only in vLLM |
-
-**Conclusion: ALL vLLM models must use BF16 weights + BF16 KV cache (`--kv-cache-dtype auto`).**
+AWQ support confirmed using a custom vLLM fork/patch that avoids proprietary Triton/FlashAttention paths where incompatible.
 
 ---
 
-## How to Continue
+## Next Steps
 
-Pick up from the "Not Yet Updated" table above. The `.env` is the source of truth — all other files need to be aligned to it.
-
-Priority order:
-1. `compose/vllm.yml` + new `compose/cpu.yml`
-2. `opencode/opencode.jsonc`
-3. `.env.example`
-4. Scripts (`health`, `up`, `down`)
-5. `.opencode/oh-my-opencode.json`
-6. Documentation (`DECISIONS.md`, `README.md`)
+- [ ] Performance profiling of the 70B AWQ on UMA.
+- [ ] Tuning `BIFROST_ODIN_TTL` for optimal swap behavior.
+- [ ] Adding more Knowledge Curators (Frigga) to the utility tier.

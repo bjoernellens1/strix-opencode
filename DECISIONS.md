@@ -24,65 +24,49 @@ Last updated: 2026-02-09
 
 ---
 
-## 2. Quantization: Exhaustive Testing Results on gfx1151
+## 2. Quantization: Testing Results on gfx1151
 
-**Every quantization method available in vLLM was tested on this hardware. None are viable.**
+**Phase 6 Update: AWQ 4-bit is now fully functional and verified.**
+
+### AWQ INT4 (Pre-quantized Checkpoint)
+
+**Result: ✅ WORKS (with `kyuz0/vllm-therock-gfx1151`)**
+
+Previously, AWQ resulted in GPU hangs due to Triton kernel incompatibilities with wave32 (RDNA 3.5). The current stack uses a specialized vLLM build (`kyuz0/vllm-therock-gfx1151`) that fixes these issues.
+
+- **Verified with**: `Qwen/Qwen2.5-14B-Instruct-AWQ`, `casperhansen/llama-3.3-70b-instruct-awq`
+- **Performance**: Sub-1s first-token latency, strong throughput on shared UMA memory.
+- **Memory**: ~4x reduction in weight size vs BF16, enabling all 6 agents to run on GPU.
 
 ### FP8 Weight Quantization (`--quantization fp8`)
 
-**Result: CRASH**
+**Result: ❌ CRASH**
 
 ```
 torch._scaled_mm requires MI300+ or CUDA sm_89+
 ```
 
-The FP8 matrix multiply kernel (`torch._scaled_mm`) is only implemented for AMD MI300-series (CDNA 3) and NVIDIA Ada Lovelace+ GPUs. RDNA 3.5 (gfx1151) has no hardware FP8 compute units.
-
-### AWQ INT4 (Pre-quantized Checkpoint)
-
-**Result: GPU HANG — requires hard reboot**
-
-Tested with `Qwen/Qwen2.5-14B-Instruct-AWQ`. vLLM loaded the model and began serving, but crashed on the first inference request:
-
-```
-Memory access fault by GPU node-1 (Agent handle: 0x...)
-...
-GPU Hang
-```
-
-Root cause: vLLM auto-enables Triton AWQ kernels on ROCm (`VLLM_USE_TRITON_AWQ`). These Triton kernels are written for CDNA (MI-series) wave64 execution. RDNA 3.5 uses wave32 — the kernels produce invalid memory accesses.
-
-The AWQ dequantize/gemm ops exist in the build (`awq_dequantize`, `awq_gemm` verified via Python import), but the Triton dispatch path crashes.
+The FP8 matrix multiply kernel (`torch._scaled_mm`) is only implemented for AMD MI300-series (CDNA 3). RDNA 3.5 (gfx1151) has no hardware FP8 compute units.
 
 ### FP8 KV Cache (`--kv-cache-dtype fp8`)
 
-**Result: WORKS but with accuracy degradation**
+**Result: ⚠️ WORKS but with accuracy degradation**
 
-```
-WARNING: Using uncalibrated q_scale 1.0 and/or prob_scale 1.0 with fp8 attention.
-This may cause accuracy issues.
-```
+FP8 KV cache is implemented as data packing, so it runs on any hardware. However, on gfx1151 the attention kernel uses **uncalibrated quantization scales** (hardcoded 1.0).
 
-FP8 KV cache is implemented as pure data packing (no FP8 compute required), so it runs on any hardware. However, on gfx1151 the attention kernel uses **uncalibrated quantization scales** (hardcoded 1.0), meaning the FP8 values are not properly scaled. This causes accuracy loss, especially on longer sequences.
-
-**Decision: Do not use.** The memory savings (2x KV) are not worth the accuracy risk for an agent coding assistant where correctness matters.
-
-### GPTQ, Marlin, bitsandbytes, GGUF-in-vLLM
-
-**Result: NOT AVAILABLE on ROCm**
-
-All require CUDA-only kernel libraries (Marlin, ExLlama, cutlass, bitsandbytes CUDA ops). Not compiled for ROCm in any vLLM build.
+**Decision: Do not use.** AWQ 4-bit weights + BF16 KV cache (`--kv-cache-dtype auto`) provides the best balance of memory savings and correctness.
 
 ### Summary
 
-| Method | Result | Error |
-|--------|--------|-------|
-| FP8 weights (`--quantization fp8`) | ❌ CRASH | `torch._scaled_mm requires MI300+` |
-| AWQ INT4 (pre-quantized) | ❌ GPU HANG | Triton AWQ kernels → memory fault |
-| FP8 KV cache (`--kv-cache-dtype fp8`) | ⚠️ ACCURACY LOSS | Uncalibrated scales (1.0) |
-| GPTQ/Marlin/bitsandbytes/GGUF | ❌ N/A | CUDA-only kernels |
+| Method | Result | Status |
+|--------|--------|--------|
+| **AWQ INT4** | ✅ **SUCCESS** | **Default for Phase 6** |
+| BF16 Weights | ✅ WORKS | Native support |
+| FP8 weights | ❌ CRASH | Requires MI300+ hardware |
+| FP8 KV cache | ⚠️ ACCURACY LOSS | Uncalibrated scales |
+| GPTQ/Marlin | ❌ N/A | CUDA-only kernels |
 
-**Conclusion: ALL vLLM models must use BF16 weights + BF16 KV cache (`--kv-cache-dtype auto`) on Strix Halo gfx1151.**
+**Conclusion: All agents in Phase 6 use AWQ 4-bit weights + BF16 KV cache for optimal performance on Strix Halo.**
 
 ---
 
@@ -127,6 +111,44 @@ Separates concerns across 6 agents with dedicated models per role:
 - **Heimdall** handles fast validation, monitoring, policy enforcement → 3B model, near-instant on CPU
 - **Loki** generates adversarial challenges, edge cases, alternative approaches → 7B model for balanced capability
 - **Frigga** manages documentation, context compression, long-term knowledge → 14B model for quality writing
+
+### Phase 4: GPU-only via Bifrost scheduler
+
+All 6 agents on GPU via vLLM BF16. Bifrost scheduler manages memory by stopping non-essential agents when Odin is summoned. However, this approach has limits:
+
+- **Total VRAM pressure**: Running all 6 agents BF16 exceeds 120 GB budget
+- **No quantization on gfx1151**: AWQ, FP8, GPTQ all fail (see Section 2)
+- **Odin context limited**: QwQ-32B needs large memory, 20K context cap
+
+### Phase 5: Hybrid Architecture (Legacy)
+
+llama.cpp with ROCm GPU offload for main agents (Thor, Valkyrie, Odin) + vLLM BF16 for utility agents. Proved stable but lacked unified inference optimizations (vLLM prefix caching, PagedAttention).
+
+### Phase 6: Full vLLM AWQ (Current)
+
+**Transition to unified vLLM stack.** With the specialized `gfx1151` image, all agents now run on vLLM using AWQ 4-bit quantization.
+
+| Agent | Backend | Model | VRAM (AWQ) | Context |
+|-------|---------|-------|------------|---------|
+| Thor ⚡ | vLLM (GPU) | Qwen2.5-14B-Instruct-AWQ | ~9 GB | 32K |
+| Valkyrie 🛡 | vLLM (GPU) | Qwen3-Coder-30B-A3B-AWQ | ~18 GB | 32K |
+| Odin 👁️ | vLLM (GPU) | Llama-3.3-70B-Instruct-AWQ | ~42 GB | 32K |
+| Heimdall 👁 | vLLM (GPU) | Qwen2.5-3B-Instruct-AWQ | ~3 GB | 32K |
+| Loki 🧠 | vLLM (GPU) | Qwen2.5-7B-Instruct-AWQ | ~6 GB | 32K |
+| Frigga 🌿 | vLLM (GPU) | Qwen2.5-14B-Instruct-AWQ | ~9 GB | 32K |
+
+**Why Full vLLM AWQ:**
+- **Unified Stack**: Single provider backend simplifies development and deployment.
+- **Prefix Caching**: vLLM's block-level caching improves multi-turn agent performance.
+- **Improved VRAM Efficiency**: 4-bit weights allow 70B models to fit comfortably alongside others.
+- **Lower Latency**: vLLM's continuous batching and AWQ kernels provide superior interactive speed.
+
+**Memory profiles:**
+- `standard`: Thor (~9) + Valkyrie (~18) = ~27 GB
+- `heimdall`: Thor + Valkyrie + Heimdall (~3) = ~30 GB
+- `loki`: Thor + Valkyrie + Loki (~6) = ~33 GB
+- `frigga`: Thor + Valkyrie + Frigga (~9) = ~36 GB
+- `odin`: Thor (~9) + Odin (~42) = ~51 GB (stops Valkyrie)
 
 ---
 
